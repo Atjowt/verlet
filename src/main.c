@@ -9,16 +9,17 @@
 
 #define RANDOM() (rand() / (float)RAND_MAX)
 #define INITIAL_PARTICLES 8000
-#define PARTICLE_RADIUS 0.004f
+#define PARTICLE_RADIUS 0.006f
 #define GRAVITY 4.0f
 #define MOUSE_FORCE 32.0f
-#define TIMESTEP 0.0008f
+#define TIMESTEP 0.001f
+#define DAMPENING 1.0f
 #define RADIUS_INNER 0.2f
 #define RADIUS_OUTER (1.0f - PARTICLE_RADIUS)
 #define CELL_SIZE (2.0f * PARTICLE_RADIUS)
 #define GRID_WIDTH (int)(2.0f / CELL_SIZE + 0.999f)
 #define GRID_HEIGHT (int)(2.0f / CELL_SIZE + 0.999f)
-#define CELL_CAPACITY 8
+#define CELL_CAPACITY 16
 #define MAX_INFO_LOG 512
 
 bool compileShader(const GLchar shaderSource[], GLsizei sourceLength, GLuint* shader) {
@@ -153,7 +154,8 @@ void moveParticleX(int i, float dt) {
 	float px = particles.px[i];
 	float dx = x - px;
 	particles.px[i] = x;
-	particles.x[i] = x + dx + ax * dt * dt;
+	particles.x[i] = x + DAMPENING * dx + ax * dt * dt;
+	// particles.x[i] = x + dx + ax * dt * dt;
 }
 
 void moveParticleY(int i, float dt) {
@@ -164,7 +166,8 @@ void moveParticleY(int i, float dt) {
 	float py = particles.py[i];
 	float dy = y - py;
 	particles.py[i] = y;
-	particles.y[i] = y + dy + ay * dt * dt;
+	// particles.y[i] = y + dy + ay * dt * dt;
+	particles.y[i] = y + DAMPENING * dy + ay * dt * dt;
 }
 
 void moveParticle(int i, float dt) {
@@ -212,7 +215,7 @@ void collideParticle(int i1, int i2) {
 		return;
 	}
 	float dist = sqrtf(dist2);
-	float epsilon = 0.00001f;
+	float epsilon = 0.0000001f;
 	float nx, ny;
 	if (dist < epsilon) {
 		nx = 0.0f;
@@ -223,10 +226,11 @@ void collideParticle(int i1, int i2) {
 		ny = dy * invdist;
 	}
 	float overlap = rsum - dist;
-	particles.x[i1] += 0.5f * overlap * nx;
-	particles.y[i1] += 0.5f * overlap * ny;
-	particles.x[i2] -= 0.5f * overlap * nx;
-	particles.y[i2] -= 0.5f * overlap * ny;
+	float scalar = 1.05f; // adjust for overhoot/undershoot in separation
+	particles.x[i1] += scalar * 0.5f * overlap * nx;
+	particles.y[i1] += scalar * 0.5f * overlap * ny;
+	particles.x[i2] -= scalar * 0.5f * overlap * nx;
+	particles.y[i2] -= scalar * 0.5f * overlap * ny;
 }
 
 void collideParticlesNaive(void) {
@@ -237,7 +241,26 @@ void collideParticlesNaive(void) {
 	}
 }
 
+void shuffleParticles(void) {
+	for (int i = particles.count - 1; i > 0; i--) {
+		int j = rand() % (i + 1);
+		float temp = particles.x[i];
+		particles.x[i] = particles.x[j];
+		particles.x[j] = temp;
+		temp = particles.y[i];
+		particles.y[i] = particles.y[j];
+		particles.y[j] = temp;
+		temp = particles.px[i];
+		particles.px[i] = particles.px[j];
+		particles.px[j] = temp;
+		temp = particles.py[i];
+		particles.py[i] = particles.py[j];
+		particles.py[j] = temp;
+	}
+}
+
 void collideParticlesGrid(void) {
+	// shuffleParticles();
 	recalculateGrid();
 	#pragma omp parallel for schedule(dynamic)
 	for (int cy = 1; cy < GRID_HEIGHT - 1; cy++) {
