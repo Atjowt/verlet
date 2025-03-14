@@ -9,7 +9,8 @@ vec3 palette(int i) {
 }
 
 void main(void) {
-	if (length(TexCoord) > 1.0) discard;
+	float sqrlen = dot(TexCoord, TexCoord);
+	if (sqrlen > 1.0) discard;
 	// FragColor = vec4(TexCoord, 0.0, 1.0);
 	// FragColor = vec4(0.2, 0.4, 1.0, 1.0);
 	FragColor = vec4(palette(InstanceID), 1.0);

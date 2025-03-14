@@ -5,7 +5,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define INSTANCES 100000
+#define INSTANCES 10000
 #define MAX_INFO_LOG 512
 
 #define random() (rand() / (float)RAND_MAX)
