@@ -3,20 +3,22 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
-#include <omp.h>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define INITIAL_PARTICLES 2000
-#define PARTICLE_RADIUS 0.01f
+#define RANDOM() (rand() / (float)RAND_MAX)
+#define INITIAL_PARTICLES 4000
+#define PARTICLE_RADIUS 0.008f
 #define GRAVITY 4.0f
 #define MOUSE_FORCE 32.0f
-#define TIMESTEP 0.002f
-#define RADIUS_INNER 0.4f
+#define TIMESTEP 0.0012f
+#define RADIUS_INNER 0.2f
 #define RADIUS_OUTER (1.0f - PARTICLE_RADIUS)
-
-#define RANDOM() (rand() / (float)RAND_MAX)
+#define CELL_SIZE (2.0f * PARTICLE_RADIUS)
+#define GRID_WIDTH (int)(2.0f / CELL_SIZE + 0.999f)
+#define GRID_HEIGHT (int)(2.0f / CELL_SIZE + 0.999f)
+#define CELL_CAPACITY 16
 #define MAX_INFO_LOG 512
 
 bool compileShader(const GLchar shaderSource[], GLsizei sourceLength, GLuint* shader) {
@@ -53,16 +55,72 @@ void glfwCursorPosCallback(GLFWwindow* window, double x, double y);
 void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height);
 
-float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 float screen[2] = { 0.0f, 0.0f };
+float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 struct {
-	size_t count;
+	int count;
 	float* x;
 	float* y;
 	float* px;
 	float* py;
 } particles;
+
+struct {
+	int** indices;
+	int* counts;
+} grid;
+
+void initGrid(void) {
+	grid.counts = malloc(GRID_WIDTH * GRID_HEIGHT * sizeof(int));
+	grid.indices = malloc(GRID_WIDTH * GRID_HEIGHT * sizeof(int*));
+	for (int ci = 0; ci < GRID_WIDTH * GRID_HEIGHT; ci++) {
+		grid.indices[ci] = malloc(CELL_CAPACITY * sizeof(int));
+	}
+}
+
+void freeGrid(void) {
+	for (int ci = 0; ci < GRID_WIDTH * GRID_HEIGHT; ci++) {
+		free(grid.indices[ci]);
+	}
+	free(grid.indices);
+	free(grid.counts);
+}
+
+// int gridPopParticle(int i, int ci) {
+// 	int n = grid.counts[ci];
+// 	int swapback = grid.indices[ci][n-1];
+// 	int pi = grid.indices[ci][i];
+// 	grid.indices[ci][i] = swapback;
+// 	--grid.counts[ci];
+// 	return pi;
+// }
+
+void recalculateGrid(void) {
+	memset(grid.counts, 0, GRID_WIDTH * GRID_HEIGHT * sizeof(int));
+	for (int pi = 0; pi < particles.count; pi++) {
+		float x = particles.x[pi];
+		float y = particles.y[pi];
+		int cx = (x + 1.0f) / CELL_SIZE;
+		if (cx < 0) { cx = 0; }
+		if (cx >= GRID_WIDTH) { cx = GRID_WIDTH - 1; }
+		int cy = (y + 1.0f) / CELL_SIZE;
+		if (cy < 0) { cy = 0; }
+		if (cy >= GRID_HEIGHT) { cy = GRID_HEIGHT - 1; }
+		int ci = cy * GRID_WIDTH + cx;
+		int i = grid.counts[ci];
+		// if (i < 0) {
+		// 	fprintf(stderr, "Index negative for some reason! (%d)\n", i);
+		// 	continue;
+		// }
+		if (i >= CELL_CAPACITY) {
+			fprintf(stderr, "Too many particles in cell! (%d)\n", i);
+			continue;
+		}
+		grid.indices[ci][i] = pi;
+		grid.counts[ci]++;
+	}
+}
 
 void initParticles(size_t count) {
 	particles.count = count;
@@ -115,7 +173,6 @@ void moveParticle(int i, float dt) {
 }
 
 void moveParticles(float dt) {
-	#pragma omp parallel for
 	for (int i = 0; i < particles.count; i++) {
 		moveParticle(i, dt);
 	}
@@ -134,7 +191,6 @@ void constrainParticle(int i) {
 }
 
 void constrainParticles(void) {
-	#pragma omp parallel for
 	for (int i = 0; i < particles.count; i++) {
 		constrainParticle(i);
 	}
@@ -171,8 +227,7 @@ void collideParticle(int i1, int i2) {
 	particles.y[i2] -= 0.5f * overlap * ny;
 }
 
-void collideParticles(void) {
-	#pragma omp parallel for collapse(2)
+void collideParticlesNaive(void) {
 	for (int i1 = 0; i1 < particles.count - 1; i1++) {
 		for (int i2 = i1; i2 < particles.count; i2++) {
 			collideParticle(i1, i2);
@@ -180,6 +235,33 @@ void collideParticles(void) {
 	}
 }
 
+void collideParticlesGrid(void) {
+	recalculateGrid();
+	for (int cy = 1; cy < GRID_HEIGHT - 1; cy++) {
+		for (int cx = 1; cx < GRID_WIDTH - 1; cx++) {
+			int indices[9 * CELL_CAPACITY];
+			int count = 0;
+			for (int dy = -1; dy <= 1; dy++) {
+				for (int dx = -1; dx <= 1; dx++) {
+					int ci = (cy + dy) * GRID_WIDTH + cx + dx;
+					for (int i = 0; i < grid.counts[ci]; i++) {
+						indices[count++] = grid.indices[ci][i];
+					}
+				}
+			}
+			for (int i = 0; i < count - 1; i++) {
+				for (int j = i + 1; j < count; j++) {
+					collideParticle(indices[i], indices[j]);
+				}
+			}
+		}
+	}
+}
+
+void collideParticles(void) {
+	collideParticlesGrid();
+	// collideParticlesNaive();
+}
 
 void updateParticles(float dt) {
 	moveParticles(dt);
@@ -253,7 +335,9 @@ int main(void) {
 	linkProgram(&circleShader);
 
 	srand(time(NULL));
+
 	initParticles(INITIAL_PARTICLES);
+	initGrid();
 
 	GLuint positionTex;
 	glGenTextures(1, &positionTex);
@@ -297,7 +381,7 @@ int main(void) {
 			timeDebt -= TIMESTEP;
 		}
 
-		// zip positions together before sending to GPU
+		// zip together positions before sending to GPU
 		for (int i = 0; i < particles.count; i++) {
 			positions[2*i] = particles.x[i];
 			positions[2*i+1] = particles.y[i];
@@ -323,6 +407,7 @@ int main(void) {
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	freeParticles();
+	freeGrid();
 	free(positions);
 
 terminate:

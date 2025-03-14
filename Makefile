@@ -5,11 +5,8 @@ CC := clang
 CFLAGS := -std=c23 -pedantic
 CFLAGS += -Iinclude
 CFLAGS += -lm -lglfw
-CFLAGS += -O3
-CFLAGS += -ffast-math
-CFLAGS += -fopenmp
-# CFLAGS += -g
-# CFLAGS += -fsanitize=address
+# CFLAGS += -g -fsanitize=address
+CFLAGS += -O3 -ffast-math
 
 SHADERS := $(wildcard shader/*)
 SOURCES := $(wildcard src/*)
