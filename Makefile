@@ -7,6 +7,7 @@ CFLAGS += -Iinclude
 CFLAGS += -lm -lglfw
 # CFLAGS += -g -fsanitize=address
 CFLAGS += -O3 -ffast-math
+CFLAGS += -fopenmp
 
 SHADERS := $(wildcard shader/*)
 SOURCES := $(wildcard src/*)

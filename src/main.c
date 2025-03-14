@@ -8,17 +8,17 @@
 #include <GLFW/glfw3.h>
 
 #define RANDOM() (rand() / (float)RAND_MAX)
-#define INITIAL_PARTICLES 4000
-#define PARTICLE_RADIUS 0.008f
+#define INITIAL_PARTICLES 8000
+#define PARTICLE_RADIUS 0.004f
 #define GRAVITY 4.0f
 #define MOUSE_FORCE 32.0f
-#define TIMESTEP 0.0012f
+#define TIMESTEP 0.0008f
 #define RADIUS_INNER 0.2f
 #define RADIUS_OUTER (1.0f - PARTICLE_RADIUS)
 #define CELL_SIZE (2.0f * PARTICLE_RADIUS)
 #define GRID_WIDTH (int)(2.0f / CELL_SIZE + 0.999f)
 #define GRID_HEIGHT (int)(2.0f / CELL_SIZE + 0.999f)
-#define CELL_CAPACITY 16
+#define CELL_CAPACITY 8
 #define MAX_INFO_LOG 512
 
 bool compileShader(const GLchar shaderSource[], GLsizei sourceLength, GLuint* shader) {
@@ -181,9 +181,11 @@ void moveParticles(float dt) {
 void constrainParticle(int i) {
 	float x = particles.x[i];
 	float y = particles.y[i];
-	float dist = sqrtf(x * x + y * y);
-	float nx = x / dist;
-	float ny = y / dist;
+	float  dist2 = x * x + y * y;
+	float dist = sqrtf(dist2);
+	float invdist = 1.0f / dist;
+	float nx = x * invdist;
+	float ny = y * invdist;
 	dist = fminf(dist, RADIUS_OUTER);
 	dist = fmaxf(dist, RADIUS_INNER);
 	particles.x[i] = nx * dist;
@@ -210,7 +212,7 @@ void collideParticle(int i1, int i2) {
 		return;
 	}
 	float dist = sqrtf(dist2);
-	float epsilon = 0.0001f;
+	float epsilon = 0.00001f;
 	float nx, ny;
 	if (dist < epsilon) {
 		nx = 0.0f;
@@ -237,6 +239,7 @@ void collideParticlesNaive(void) {
 
 void collideParticlesGrid(void) {
 	recalculateGrid();
+	#pragma omp parallel for schedule(dynamic)
 	for (int cy = 1; cy < GRID_HEIGHT - 1; cy++) {
 		for (int cx = 1; cx < GRID_WIDTH - 1; cx++) {
 			int indices[9 * CELL_CAPACITY];
