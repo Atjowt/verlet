@@ -1,36 +1,15 @@
 #version 460
 
-int index[6] = {
-	0, 1, 2,
-	2, 1, 3,
+layout(std430, binding = 0) buffer PosBuf {
+	vec2 pos[];
 };
 
-vec2 vertex[4] = {
-	vec2(-1.0, -1.0), vec2(1.0, -1.0),
-	vec2(-1.0, 1.0), vec2(1.0, 1.0),
+layout(std430, binding = 1) buffer VelBuf {
+	vec2 vel[];
 };
 
-#define INSTANCES 4
-
-vec2 pos[INSTANCES] = {
-	vec2(0.0, 0.0),
-	vec2(0.1, 0.1),
-	vec2(0.2, 0.2),
-	vec2(0.3, 0.3),
-};
-
-vec2 scale[INSTANCES] = {
-	vec2(0.1, 0.1),
-	vec2(0.1, 0.1),
-	vec2(0.1, 0.1),
-	vec2(0.1, 0.1),
-};
-
-vec3 color[INSTANCES] = {
-	vec3(1.0, 0.0, 0.0),
-	vec3(0.0, 1.0, 0.0),
-	vec3(0.0, 0.0, 1.0),
-	vec3(1.0, 1.0, 0.0),
+layout(std430, binding = 2) buffer AccBuf {
+	vec3 acc[];
 };
 
 out vec3 VertexColor;
@@ -45,6 +24,8 @@ void main(void) {
 	vec2 s = scale[gl_InstanceID];
 	VertexColor = color[gl_InstanceID];
 	TexCoord = (v + 1.0) * 0.5;
-	pos[gl_InstanceID] += vec2(100.0, 100.0) * dt; // this does not work
+
+	pos[gl_InstanceID] += vec2(100.0, 100.0) * dt;
+
 	gl_Position = vec4(p + s * v, 0.0, 1.0);
 }

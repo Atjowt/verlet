@@ -118,6 +118,45 @@ int main(void) {
 		}
 	}
 
+
+#define INSTANCES 4
+
+	GLuint ssboPos, ssboVel, ssboAcc;
+	glGenBuffers(1, &ssboPos);
+	glGenBuffers(1, &ssboVel);
+	glGenBuffers(1, &ssboAcc);
+
+	float pos0[INSTANCES][2] = {
+		{  0.0f, 0.0f, },
+		{  0.1f, 0.1f, },
+		{  0.2f, 0.2f, },
+		{  0.3f, 0.3f, },
+	};
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboPos);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(pos0), pos0, GL_DYNAMIC_DRAW);
+
+	float vel0[INSTANCES][2] = {
+		{  0.0f, 0.0f, },
+		{  0.1f, 0.1f, },
+		{  0.2f, 0.2f, },
+		{  0.3f, 0.3f, },
+	};
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboVel);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(vel0), vel0, GL_DYNAMIC_DRAW);
+
+	float acc0[INSTANCES][2] = {
+		{  0.0f, 0.0f, },
+		{  0.0f, 0.0f, },
+		{  0.0f, 0.0f, },
+		{  0.0f, 0.0f, },
+	};
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssboAcc);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(acc0), acc0, GL_DYNAMIC_DRAW);
+
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssboPos);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssboVel);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, ssboAcc);
+
 	GLint shaderDeltaTime = glGetUniformLocation(shaderProgram, "uDeltaTime");
 	
 	glfwSetTime(0.0);
@@ -125,7 +164,7 @@ int main(void) {
 	while (!glfwWindowShouldClose(window)) {
 		double timeCurr = glfwGetTime();
 		double deltaTime = timeCurr - timePrev;
-		printf("DT: %f\n", deltaTime);
+		printf("%.2f FPS\n", 1.0f / deltaTime);
 		timePrev = timeCurr;
 		glClearColor(0.5f, 0.5f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
