@@ -12,7 +12,7 @@ SOURCES := src/main.c src/glad.c
 
 all: verlet
 
-verlet: shader/main.vert shader/main.frag $(SOURCES)
+verlet: shader/verlet.vert shader/verlet.frag $(SOURCES)
 	 $(CC) $(CFLAGS) -o $@ $(SOURCES)
 
 run: verlet
