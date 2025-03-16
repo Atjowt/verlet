@@ -16,10 +16,20 @@ uniform float radius;
 
 out vec2 uv;
 
+struct Particle {
+	vec2 pos;
+	vec2 prevPos;
+};
+
+layout(std430, binding = 0) buffer Particles {
+	Particle particles[];
+};
+
 void main(void) {
 	int ii = gl_InstanceID;
 	int vi = gl_VertexID;
-	vec2 position = texelFetch(positions, ii, 0).xy;
+	// vec2 position = texelFetch(positions, ii, 0).xy;
+	vec2 position = particles[ii].pos;
 	vec2 offset = offsets[indices[vi]];
 	uv = offset;
 	gl_Position = vec4(position + radius * offset, 0.0, 1.0);

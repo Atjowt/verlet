@@ -8,11 +8,11 @@
 #include <GLFW/glfw3.h>
 
 #define RANDOM() (rand() / (float)RAND_MAX)
-#define INITIAL_PARTICLES 8000
-#define PARTICLE_RADIUS 0.006f
+#define INITIAL_PARTICLES 512
+#define PARTICLE_RADIUS 0.01f
 #define GRAVITY 4.0f
 #define MOUSE_FORCE 32.0f
-#define TIMESTEP 0.001f
+#define TIMESTEP 0.0008f
 #define DAMPENING 1.0f
 #define RADIUS_INNER 0.2f
 #define RADIUS_OUTER (1.0f - PARTICLE_RADIUS)
@@ -372,13 +372,70 @@ int main(void) {
 	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glBindTexture(GL_TEXTURE_1D, 0);
+
+	GLuint particlesSSBO;
+	glGenBuffers(1, &particlesSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, particlesSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, particles.count * 4 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particlesSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+	GLuint adjustmentsSSBO;
+	glGenBuffers(1, &adjustmentsSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, adjustmentsSSBO);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, particles.count * 2 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, adjustmentsSSBO);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+	printf("Compiling shader 'move.comp'...\n");
+	GLuint movementComputeShader = glCreateShader(GL_COMPUTE_SHADER); {
+		const GLchar shaderSource[] = {
+			#embed "shader/move.comp"
+		};
+		GLsizei sourceLength = sizeof(shaderSource);
+		compileShader(shaderSource, sourceLength, &movementComputeShader);
+	}
+
+	printf("Linking program 'moveComputeProgram'...\n");
+	GLuint movementComputeProgram = glCreateProgram();
+	glAttachShader(movementComputeProgram, movementComputeShader);
+	linkProgram(&movementComputeProgram);
+
+	printf("Compiling shader 'collide.comp'...\n");
+	GLuint collisionComputeShader = glCreateShader(GL_COMPUTE_SHADER); {
+		const GLchar shaderSource[] = {
+			#embed "shader/collide.comp"
+		};
+		GLsizei sourceLength = sizeof(shaderSource);
+		compileShader(shaderSource, sourceLength, &collisionComputeShader);
+	}
+
+	printf("Linking program 'collideComputeProgram'...\n");
+	GLuint collisionComputeProgram = glCreateProgram();
+	glAttachShader(collisionComputeProgram, collisionComputeShader);
+	linkProgram(&collisionComputeProgram);
 	
+	printf("Compiling shader 'constrain.comp'...\n");
+	GLuint constrainComputeShader = glCreateShader(GL_COMPUTE_SHADER); {
+		const GLchar shaderSource[] = {
+			#embed "shader/constrain.comp"
+		};
+		GLsizei sourceLength = sizeof(shaderSource);
+		compileShader(shaderSource, sourceLength, &constrainComputeShader);
+	}
+
+	printf("Linking program 'constrainComputeProgram'...\n");
+	GLuint constrainComputeProgram = glCreateProgram();
+	glAttachShader(constrainComputeProgram, constrainComputeShader);
+	linkProgram(&constrainComputeProgram);
+
 	glUseProgram(circleShader);
 	glUniform1i(glGetUniformLocation(circleShader, "positions"), 0);
 	glUniform1f(glGetUniformLocation(circleShader, "radius"), PARTICLE_RADIUS);
 	glUseProgram(0);
 
 	float* positions = malloc(particles.count * sizeof(float) * 2);
+	float* ssboData = malloc(particles.count * sizeof(float) * 4);
 
 	glfwSetTime(0.0);
 	float timePrev = 0.0f;
@@ -401,23 +458,65 @@ int main(void) {
 		fpsTimer += deltaTime;
 		fpsCounter++;
 
-		timeDebt += deltaTime;
-		while (timeDebt >= 0.0f) {
-			updateParticles(TIMESTEP);
-			timeDebt -= TIMESTEP;
-		}
+		// timeDebt += deltaTime;
+		// while (timeDebt >= 0.0f) {
+		// 	updateParticles(TIMESTEP);
+		// 	timeDebt -= TIMESTEP;
+		// }
 
-		// zip together positions before sending to GPU
+		// zip together data for sending to GPU
 		for (int i = 0; i < particles.count; i++) {
 			positions[2*i] = particles.x[i];
 			positions[2*i+1] = particles.y[i];
+			ssboData[4*i] = particles.x[i];
+			ssboData[4*i+1] = particles.y[i];
+			ssboData[4*i+2] = particles.px[i];
+			ssboData[4*i+3] = particles.py[i];
 		}
 
+		// update ssbo with particle data for compute shaders
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, particlesSSBO);
+		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, particles.count * 4 * sizeof(float), ssboData);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+		// dispatch compute shaders
+
+		// compute movement
+		glUseProgram(movementComputeProgram);
+		glDispatchCompute(particles.count, 1, 1);
+		// glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+		// compute collision
+		glUseProgram(collisionComputeProgram);
+		glDispatchCompute(particles.count, 1, 1);
+		// glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+		// compute constraints
+		glUseProgram(constrainComputeProgram);
+		glDispatchCompute(particles.count, 1, 1);
+		// glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+		// read back compute shader data
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, particlesSSBO);
+		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, particles.count * sizeof(float) * 4, ssboData);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		for (int i = 0; i < particles.count; i++) {
+			particles.x[i] = ssboData[4*i];
+			particles.y[i] = ssboData[4*i+1];
+			particles.px[i] = ssboData[4*i+2];
+			particles.py[i] = ssboData[4*i+3];
+		}
+
+		// send particle data as 1D texture
 		glUseProgram(circleShader);
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_1D, positionTex);
 		glTexSubImage1D(GL_TEXTURE_1D, 0, 0, particles.count, GL_RG, GL_FLOAT, positions);
 
+		// make draw call
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glDrawArraysInstanced(GL_TRIANGLES, 0, 6, particles.count);
@@ -435,6 +534,7 @@ int main(void) {
 	freeParticles();
 	freeGrid();
 	free(positions);
+	free(ssboData);
 
 terminate:
 	return exitcode;
