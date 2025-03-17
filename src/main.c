@@ -11,7 +11,7 @@
 #define MAX_INFO_LOG 512
 #define RANDOM() (rand() / (float)RAND_MAX)
 
-void compileShaderFromSources(GLsizei n, GLchar const* const* sources, GLint const* lengths, GLuint* shader) {
+void compileShaderSource(GLsizei n, GLchar const* const* sources, GLint const* lengths, GLuint* shader) {
 	glShaderSource(*shader, n, sources, lengths);
 	glCompileShader(*shader);
 	GLint compiled;
@@ -25,7 +25,7 @@ void compileShaderFromSources(GLsizei n, GLchar const* const* sources, GLint con
 	}
 }
 
-void compileShaderFromFiles(GLsizei n, char const* const* filenames, GLuint* shader) {
+void compileShaderFiles(GLsizei n, char const* const* filenames, GLuint* shader) {
 	GLchar** sources = malloc(n * sizeof(GLchar*));
 	GLint* lengths = malloc(n * sizeof(GLint));
 	for (size_t i = 0; i < n; i++) {
@@ -46,7 +46,7 @@ void compileShaderFromFiles(GLsizei n, char const* const* filenames, GLuint* sha
 		lengths[i] = length;
 	}
 	printf("Compiling shader...\n");
-	compileShaderFromSources(n, (const GLchar* const*)sources, lengths, shader);
+	compileShaderSource(n, (const GLchar* const*)sources, lengths, shader);
 	for (size_t i = 0; i < n; i++) {
 		free(sources[i]);
 	}
@@ -115,11 +115,11 @@ int main(void) {
 
 	GLuint circleVertShader = glCreateShader(GL_VERTEX_SHADER);
 	const char* circleVertShaderFiles[] = { "shader/common.glsl", "shader/circle.vert" };
-	compileShaderFromFiles(2, circleVertShaderFiles, &circleVertShader);
+	compileShaderFiles(2, circleVertShaderFiles, &circleVertShader);
 
 	GLuint circleFragShader = glCreateShader(GL_FRAGMENT_SHADER);
 	const char* circleFragShaderFiles[] = { "shader/common.glsl", "shader/circle.frag" };
-	compileShaderFromFiles(2, circleFragShaderFiles, &circleFragShader);
+	compileShaderFiles(2, circleFragShaderFiles, &circleFragShader);
 
 	GLuint renderProgram = glCreateProgram();
 	glAttachShader(renderProgram, circleVertShader);
@@ -128,12 +128,26 @@ int main(void) {
 
 	GLuint computeMovementShader = glCreateShader(GL_COMPUTE_SHADER);
 	const char* computeMovementShaderFiles[] = { "shader/common.glsl", "shader/movement.comp" };
-	compileShaderFromFiles(2, computeMovementShaderFiles, &computeMovementShader);
+	compileShaderFiles(2, computeMovementShaderFiles, &computeMovementShader);
 	GLuint movementProgram = glCreateProgram();
 	glAttachShader(movementProgram, computeMovementShader);
 	linkShaderProgram(&movementProgram);
 
-	float (*initPos)[4] = malloc(NUM_PARTICLES * sizeof(float[4]));
+	GLuint computeGridShader = glCreateShader(GL_COMPUTE_SHADER);
+	const char* computeGridShaderFiles[] = { "shader/common.glsl", "shader/grid.comp" };
+	compileShaderFiles(2, computeGridShaderFiles, &computeGridShader);
+	GLuint gridProgram = glCreateProgram();
+	glAttachShader(gridProgram, computeGridShader);
+	linkShaderProgram(&gridProgram);
+
+	GLuint computeCollisionShader = glCreateShader(GL_COMPUTE_SHADER);
+	const char* computeCollisionShaderFiles[] = { "shader/common.glsl", "shader/collision.comp" };
+	compileShaderFiles(2, computeCollisionShaderFiles, &computeCollisionShader);
+	GLuint collisionProgram = glCreateProgram();
+	glAttachShader(collisionProgram, computeCollisionShader);
+	linkShaderProgram(&collisionProgram);
+
+	float (*initPos)[4] = malloc(NUM_PARTICLES * sizeof(GLfloat[4]));
 	for (int i = 0; i < NUM_PARTICLES; i++) {
 		float x = 2.0f * RANDOM() - 1.0f;
 		float y = 2.0f * RANDOM() - 1.0f;
@@ -144,15 +158,37 @@ int main(void) {
 		initPos[i][2] = x - dx;
 		initPos[i][3] = y - dy;
 	}
+	GLuint particleBuffer;
+	glGenBuffers(1, &particleBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PARTICLES * sizeof(GLfloat[4]), initPos, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, particleBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	free(initPos);
 
-	GLuint ssbo;
-	glGenBuffers(1, &ssbo);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-	glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PARTICLES * sizeof(float[4]), initPos, GL_DYNAMIC_DRAW);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+	// TODO: fix this
+	int gridSize = 10;
+	int cellCapacity = 8;
+
+	GLuint indexBuffer;
+	glGenBuffers(1, &indexBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, indexBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, gridSize * gridSize * cellCapacity * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, indexBuffer);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-	free(initPos);
+	GLuint countsBuffer;
+	glGenBuffers(1, &countsBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, countsBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, gridSize * gridSize * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, countsBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	// GLuint counterBuffer;
+	// glGenBuffers(1, &counterBuffer);
+	// glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counterBuffer);
+	// glBufferData(GL_ATOMIC_COUNTER_BUFFER, gridSize * gridSize * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
+	// glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 2, counterBuffer);
+	// glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 
 	glfwSetTime(0.0);
 	float timePrev = 0.0f;
@@ -161,6 +197,8 @@ int main(void) {
 
 	GLint shaderTime = glGetUniformLocation(movementProgram, "time");
 	GLint shaderMouse = glGetUniformLocation(movementProgram, "mouse");
+
+	GLint shaderRedblack = glGetUniformLocation(collisionProgram, "redblack");
 
 	while (!glfwWindowShouldClose(window)) {
 
@@ -176,20 +214,64 @@ int main(void) {
 		fpsTimer += deltaTime;
 		fpsCounter++;
 
-		glUseProgram(movementProgram);
+		int substeps = 8;
+		float subdt = deltaTime / substeps;
+		for (int step = 0; step < substeps; step++) {
+			glUseProgram(movementProgram);
+			glUniform2f(shaderTime, timeCurr, subdt);
+			glUniform4fv(shaderMouse, 1, mouse);
+			glDispatchCompute(NUM_PARTICLES, 1, 1);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glUseProgram(0);
 
-		glUniform2f(shaderTime, timeCurr, deltaTime);
-		glUniform4fv(shaderMouse, 1, mouse);
+			glUseProgram(gridProgram);
+			glDispatchCompute(gridSize * gridSize, 1, 1);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glUseProgram(0);
 
-		glDispatchCompute(NUM_PARTICLES, 1, 1);
-		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-		glUseProgram(0);
+			glUseProgram(collisionProgram);
+			int numChunks = gridSize / 3;
+			glUniform1i(shaderRedblack, 0);
+			glDispatchCompute(numChunks * numChunks, 1, 1);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glUniform1i(shaderRedblack, 1);
+			glDispatchCompute(numChunks * numChunks, 1, 1);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+			glUseProgram(0);
+		}
 
 		glUseProgram(renderProgram);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glDrawArraysInstanced(GL_TRIANGLES, 0, 6, NUM_PARTICLES);
 		glUseProgram(0);
+
+		// glBindBuffer(GL_SHADER_STORAGE_BUFFER, countsBuffer);
+		// // GLuint* countsMap = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_WRITE);
+		// GLuint* countsMap = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+		// if (!countsMap) {
+		// 	GLenum err = glGetError();
+		// 	fprintf(stderr, "MAP BUFFER ERROR: %s (%d)\n", glGetString(err), err);
+		// 	exit(1);
+		// }
+		// int totalCount = 0;
+		// printf("-----------------\n");
+		// for (int y = 0; y < gridSize; y++) {
+		// 	for (int x = 0; x < gridSize; x++) {
+		// 		int i = (gridSize - y - 1) * gridSize + x;
+		// 		GLuint count = countsMap[i];
+		// 		totalCount += count;
+		// 		printf("%u ", count);
+		// 	}
+		// 	printf("\n");
+		// }
+		// printf("-----------------\n");
+		// if (totalCount != NUM_PARTICLES) {
+		// 	fprintf(stderr, "COUNT DOESNT ADD UP\n");
+		// 	// exit(1);
+		// }
+		// glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		// glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();

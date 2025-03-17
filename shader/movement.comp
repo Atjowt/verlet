@@ -23,6 +23,10 @@ vec2 move(vec2 curr, vec2 prev, float dt) {
 }
 
 vec2 constrain(vec2 pos) {
+	// return vec2 (
+	// 	clamp(pos.x, -1.0, 1.0),
+	// 	clamp(pos.y, -1.0, 1.0)
+	// );
 	float dist = length(pos);
 	vec2 dir = pos * (1.0 / dist);
 	return dir * min(dist, 1.0 - RADIUS);

@@ -1,0 +1,22 @@
+layout (local_size_x = 1) in;
+
+void main(void) {
+	uint cellIndex = gl_GlobalInvocationID.x;
+	Counts[cellIndex] = 0;
+	uint cellX = cellIndex % GRID_SIZE;
+	uint cellY = (cellIndex - cellX) / GRID_SIZE;
+	for (uint particleIndex = 0; particleIndex < Particles.length(); particleIndex++) {
+		vec2 pos = Particles[particleIndex].xy;
+		uint pcX = uint((pos.x + 1.0) / CELL_SIZE);
+		uint pcY = uint((pos.y + 1.0) / CELL_SIZE);
+		pcX = clamp(pcX, 0u, GRID_SIZE - 1);
+		pcY = clamp(pcY, 0u, GRID_SIZE - 1);
+		// append particle index if inside cell
+		if (pcX == cellX && pcY == cellY) {
+			uint count = Counts[cellIndex];
+			uint indexInCell = cellIndex * CELL_CAPACITY + count;
+			Indices[indexInCell] = particleIndex;
+			Counts[cellIndex] = count + 1;
+		}
+	}
+}
