@@ -7,8 +7,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES 8
+#define NUM_PARTICLES 1024
 #define MAX_INFO_LOG 512
+#define SUBSTEPS 8
 #define RANDOM() (rand() / (float)RAND_MAX)
 
 void compileShaderSource(GLsizei n, GLchar const* const* sources, GLint const* lengths, GLuint* shader) {
@@ -72,7 +73,7 @@ void glfwCursorPosCallback(GLFWwindow* window, double x, double y);
 void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height);
 
-float screen[2] = { 0.0f, 0.0f };
+float viewport[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 int main(void) {
@@ -133,12 +134,12 @@ int main(void) {
 	glAttachShader(movementProgram, computeMovementShader);
 	linkShaderProgram(&movementProgram);
 
-	GLuint computeGridShader = glCreateShader(GL_COMPUTE_SHADER);
-	const char* computeGridShaderFiles[] = { "shader/common.glsl", "shader/grid.comp" };
-	compileShaderFiles(2, computeGridShaderFiles, &computeGridShader);
-	GLuint gridProgram = glCreateProgram();
-	glAttachShader(gridProgram, computeGridShader);
-	linkShaderProgram(&gridProgram);
+	// GLuint computeGridShader = glCreateShader(GL_COMPUTE_SHADER);
+	// const char* computeGridShaderFiles[] = { "shader/common.glsl", "shader/grid.comp" };
+	// compileShaderFiles(2, computeGridShaderFiles, &computeGridShader);
+	// GLuint gridProgram = glCreateProgram();
+	// glAttachShader(gridProgram, computeGridShader);
+	// linkShaderProgram(&gridProgram);
 
 	GLuint computeCollisionShader = glCreateShader(GL_COMPUTE_SHADER);
 	const char* computeCollisionShaderFiles[] = { "shader/common.glsl", "shader/collision.comp" };
@@ -146,6 +147,13 @@ int main(void) {
 	GLuint collisionProgram = glCreateProgram();
 	glAttachShader(collisionProgram, computeCollisionShader);
 	linkShaderProgram(&collisionProgram);
+
+	GLuint computeSeparateShader = glCreateShader(GL_COMPUTE_SHADER);
+	const char* computeSeparateShaderFiles[] = { "shader/common.glsl", "shader/separate.comp" };
+	compileShaderFiles(2, computeSeparateShaderFiles, &computeSeparateShader);
+	GLuint separateProgram = glCreateProgram();
+	glAttachShader(separateProgram, computeSeparateShader);
+	linkShaderProgram(&separateProgram);
 
 	float (*initPos)[4] = malloc(NUM_PARTICLES * sizeof(GLfloat[4]));
 	for (int i = 0; i < NUM_PARTICLES; i++) {
@@ -158,6 +166,7 @@ int main(void) {
 		initPos[i][2] = x - dx;
 		initPos[i][3] = y - dy;
 	}
+
 	GLuint particleBuffer;
 	glGenBuffers(1, &particleBuffer);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, particleBuffer);
@@ -166,23 +175,13 @@ int main(void) {
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	free(initPos);
 
-	// TODO: fix this
-	int gridSize = 10;
-	int cellCapacity = 8;
-
-	GLuint indexBuffer;
-	glGenBuffers(1, &indexBuffer);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, indexBuffer);
-	glBufferData(GL_SHADER_STORAGE_BUFFER, gridSize * gridSize * cellCapacity * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, indexBuffer);
+	GLuint separationsBuffer;
+	glGenBuffers(1, &separationsBuffer);
+	glBindBuffer(GL_SHADER_STORAGE_BUFFER, separationsBuffer);
+	glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PARTICLES * sizeof(GLfloat[2]), NULL, GL_DYNAMIC_DRAW);
+	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, separationsBuffer);
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-	GLuint countsBuffer;
-	glGenBuffers(1, &countsBuffer);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, countsBuffer);
-	glBufferData(GL_SHADER_STORAGE_BUFFER, gridSize * gridSize * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, countsBuffer);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	// GLuint counterBuffer;
 	// glGenBuffers(1, &counterBuffer);
 	// glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, counterBuffer);
@@ -198,8 +197,6 @@ int main(void) {
 	GLint shaderTime = glGetUniformLocation(movementProgram, "time");
 	GLint shaderMouse = glGetUniformLocation(movementProgram, "mouse");
 
-	GLint shaderRedblack = glGetUniformLocation(collisionProgram, "redblack");
-
 	while (!glfwWindowShouldClose(window)) {
 
 		float timeCurr = glfwGetTime();
@@ -214,37 +211,27 @@ int main(void) {
 		fpsTimer += deltaTime;
 		fpsCounter++;
 
-		int substeps = 8;
-		float subdt = deltaTime / substeps;
-		for (int step = 0; step < substeps; step++) {
+		float timestep = deltaTime / SUBSTEPS;
+		for (int step = 0; step < SUBSTEPS; step++) {
 			glUseProgram(movementProgram);
-			glUniform2f(shaderTime, timeCurr, subdt);
+			glUniform2f(shaderTime, timeCurr, timestep);
 			glUniform4fv(shaderMouse, 1, mouse);
 			glDispatchCompute(NUM_PARTICLES, 1, 1);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-			glUseProgram(0);
-
-			glUseProgram(gridProgram);
-			glDispatchCompute(gridSize * gridSize, 1, 1);
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-			glUseProgram(0);
 
 			glUseProgram(collisionProgram);
-			int numChunks = gridSize / 3;
-			glUniform1i(shaderRedblack, 0);
-			glDispatchCompute(numChunks * numChunks, 1, 1);
+			glDispatchCompute(NUM_PARTICLES, 1, 1);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-			glUniform1i(shaderRedblack, 1);
-			glDispatchCompute(numChunks * numChunks, 1, 1);
+
+			glUseProgram(separateProgram);
+			glDispatchCompute(NUM_PARTICLES, 1, 1);
 			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-			glUseProgram(0);
 		}
 
 		glUseProgram(renderProgram);
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glDrawArraysInstanced(GL_TRIANGLES, 0, 6, NUM_PARTICLES);
-		glUseProgram(0);
 
 		// glBindBuffer(GL_SHADER_STORAGE_BUFFER, countsBuffer);
 		// // GLuint* countsMap = glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_WRITE);
@@ -288,8 +275,8 @@ void glfwErrorCallback(int code, const char* desc) {
 }
 
 void glfwCursorPosCallback(GLFWwindow* window, double x, double y) {
-	mouse[0] = +(x / screen[0] - 0.5f);
-	mouse[1] = -(y / screen[1] - 0.5f);
+	mouse[0] = +(2.0f * (x - viewport[2]) / viewport[0] - 1.0f);
+	mouse[1] = -(2.0f * (y - viewport[3]) / viewport[1] - 1.0f);
 }
 
 void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
@@ -304,8 +291,6 @@ void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mod
 }
 
 void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height) {
-	screen[0] = width;
-	screen[1] = height;
 	int viewportWidth;
 	int viewportHeight;
 	int viewportX;
@@ -328,6 +313,10 @@ void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height) {
 		viewportX = (width - viewportWidth) / 2;
 		viewportY = 0;
 	}
+	viewport[0] = viewportWidth;
+	viewport[1] = viewportHeight;
+	viewport[2] = viewportX;
+	viewport[3] = viewportY;
 	glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
 }
 

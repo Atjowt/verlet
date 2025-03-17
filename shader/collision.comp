@@ -1,62 +1,39 @@
 layout (local_size_x = 1) in;
 
-uniform int redblack = 0;
+// TODO: represent positions as integers, implicitly divided by some number. then atomicAdd would be applicable
 
-void collide(uint i1, uint i2) {
-	vec4 p1 = Particles[i1];
-	vec4 p2 = Particles[i2];
-	vec2 pos1 = p1.xy;
-	vec2 pos2 = p2.xy;
-	vec2 delta = pos1 - pos2;
-	float dist2 = dot(delta, delta);
-	float rsum = 2.0 * RADIUS;
-	float rsum2 = rsum * rsum;
-	if (dist2 >= rsum2) { return; }
-	float dist = sqrt(dist2);
-	float epsilon = 0.0001;
-	vec2 normal;
-	if (dist < epsilon) {
-		dist = 0.0;
-		normal = vec2(0.0, 1.0);
-	} else {
-		normal = delta * (1.0 / dist);
-	}
-	float overlap = rsum - dist;
-	pos1 += (0.5 * overlap) * normal;
-	pos2 -= (0.5 * overlap) * normal;
-	Particles[i1].xy = pos1;
-	Particles[i2].xy = pos2;
-}
-
-// TODO: subdivide in chunks of 2
+const float rsum = 2.0 * RADIUS;
+const float rsum2 = rsum * rsum;
+const float epsilon = 0.0001;
 
 void main(void) {
-	int chunki = int(gl_GlobalInvocationID.x);
-	int chunkx = chunki % (GRID_SIZE / 3);
-	int chunky = chunki / (GRID_SIZE / 3);
-	int cell0x = chunkx * 3 + redblack;
-	int cell0y = chunky * 3 + redblack;
-	// Now loop over the 3x3 block starting at (cell0x, cell0y)
-	for (int offset1 = 0; offset1 < 9; offset1++) {
-		int cell1x = cell0x + (offset1 % 3);
-		int cell1y = cell0y + (offset1 / 3);
-		if (cell1x < 0 || cell1x >= GRID_SIZE || cell1y < 0 || cell1y >= GRID_SIZE) continue;
-		uint cell1i = cell1y * GRID_SIZE + cell1x;
-		uint count1 = Counts[cell1i];
-		for (int offset2 = offset1 + 1; offset2 < 9; offset2++) {
-			int cell2x = cell0x + (offset2 % 3);
-			int cell2y = cell0y + (offset2 / 3);
-			if (cell2x < 0 || cell2x >= GRID_SIZE || cell2y < 0 || cell2y >= GRID_SIZE) continue;
-			uint cell2i = cell2y * GRID_SIZE + cell2x;
-			uint count2 = Counts[cell2i];
-			for (uint i1 = 0; i1 < count1; i1++) {
-				uint p1i = Indices[cell1i * CELL_CAPACITY + i1];
-				for (uint i2 = 0; i2 < count2; i2++) {
-					uint p2i = Indices[cell2i * CELL_CAPACITY + i2];
-					collide(p1i, p2i);
-				}
-			}
+	uint particleIndex = gl_GlobalInvocationID.x;
+	vec4 p1 = Particles[particleIndex];
+	vec2 pos1 = p1.xy;
+	vec2 separation = vec2(0.0);
+	for (uint otherIndex = 0; otherIndex < Particles.length(); otherIndex++) {
+		if (otherIndex == particleIndex) { continue; }
+		vec4 p2 = Particles[otherIndex];
+		vec2 pos2 = p2.xy;
+		vec2 delta = pos1 - pos2;
+		float dist2 = dot(delta, delta);
+		if (dist2 >= rsum2) { continue; }
+		float dist = sqrt(dist2);
+		vec2 normal;
+		if (dist < epsilon) {
+			dist = 0.0;
+			normal = vec2(0.0, 1.0);
+		} else {
+			normal = delta * (1.0 / dist);
 		}
+		float overlap = rsum - dist;
+		/// change position in loop?
+		separation += (0.5 * overlap) * normal;
+		// pos1 += separation;
+		// pos2 -= (0.5 * overlap) * normal;
+		// Particles[i1].xy = pos1;
+		// Particles[i2].xy = pos2;
 	}
+	Separations[particleIndex] = separation;
 }
 

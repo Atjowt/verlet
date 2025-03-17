@@ -3,33 +3,27 @@ layout (local_size_x = 1) in;
 uniform vec2 time;
 uniform vec4 mouse;
 
-float move_x(float x, float px, float dt) {
+#define MOUSE_FORCE 32.0
+#define GRAVITY 4.0
+#define DAMPEN 0.99995
+
+float xmove(float x, float px, float dt) {
 	float dx = x - px;
 	float ax = 0.0;
 	ax += mouse.z * MOUSE_FORCE * (mouse.x - x);
-	return x + dx + ax * dt * dt;
+	return x + DAMPEN * dx + ax * dt * dt;
 }
 
-float move_y(float y, float py, float dt) {
+float ymove(float y, float py, float dt) {
 	float dy = y - py;
 	float ay = 0.0;
-	ay -= 2.0;
+	ay -= GRAVITY;
 	ay += mouse.z * MOUSE_FORCE * (mouse.y - y);
-	return y + dy + ay * dt * dt;
+	return y + DAMPEN * dy + ay * dt * dt;
 }
 
 vec2 move(vec2 curr, vec2 prev, float dt) {
-	return vec2(move_x(curr.x, prev.x, dt), move_y(curr.y, prev.y, dt));
-}
-
-vec2 constrain(vec2 pos) {
-	// return vec2 (
-	// 	clamp(pos.x, -1.0, 1.0),
-	// 	clamp(pos.y, -1.0, 1.0)
-	// );
-	float dist = length(pos);
-	vec2 dir = pos * (1.0 / dist);
-	return dir * min(dist, 1.0 - RADIUS);
+	return vec2(xmove(curr.x, prev.x, dt), ymove(curr.y, prev.y, dt));
 }
 
 void main(void) {
@@ -43,11 +37,6 @@ void main(void) {
 
 	float dt = time.y;
 	vec2 next = move(curr, prev, dt);
-	next = constrain(next); // temp
 
-	prev = curr;
-	curr = next;
-	p = vec4(curr, prev);
-
-	Particles[i] = p;
+	Particles[i] = vec4(next, curr);
 }
