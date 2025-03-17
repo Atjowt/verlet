@@ -1,0 +1,49 @@
+layout (local_size_x = 1) in;
+
+uniform vec2 time;
+uniform vec4 mouse;
+
+float move_x(float x, float px, float dt) {
+	float dx = x - px;
+	float ax = 0.0;
+	ax += mouse.z * MOUSE_FORCE * (mouse.x - x);
+	return x + dx + ax * dt * dt;
+}
+
+float move_y(float y, float py, float dt) {
+	float dy = y - py;
+	float ay = 0.0;
+	ay -= 2.0;
+	ay += mouse.z * MOUSE_FORCE * (mouse.y - y);
+	return y + dy + ay * dt * dt;
+}
+
+vec2 move(vec2 curr, vec2 prev, float dt) {
+	return vec2(move_x(curr.x, prev.x, dt), move_y(curr.y, prev.y, dt));
+}
+
+vec2 constrain(vec2 pos) {
+	float dist = length(pos);
+	vec2 dir = pos * (1.0 / dist);
+	return dir * min(dist, 1.0 - RADIUS);
+}
+
+void main(void) {
+
+	uint i = gl_GlobalInvocationID.x;
+
+	vec4 p = Particles[i];
+
+	vec2 curr = p.xy;
+	vec2 prev = p.zw;
+
+	float dt = time.y;
+	vec2 next = move(curr, prev, dt);
+	next = constrain(next); // temp
+
+	prev = curr;
+	curr = next;
+	p = vec4(curr, prev);
+
+	Particles[i] = p;
+}
