@@ -5,7 +5,8 @@ CC := clang
 CFLAGS := -std=c23 -pedantic
 CFLAGS += -Iinclude
 CFLAGS += -lm -lglfw
-# CFLAGS += -g -fsanitize=address
+# CFLAGS += -g
+# CFLAGS += -fsanitize=address
 CFLAGS += -O3 -ffast-math
 # CFLAGS += -fopenmp
 
