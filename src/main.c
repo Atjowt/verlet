@@ -8,25 +8,26 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES 8192
+#define NUM_PARTICLES 4096
 #define INV_RADIUS 128
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
-#define QUALITY 256
-#define TIMESTEP (1.0f / QUALITY)
+#define TIMESTEP 0.002f
 #define MOUSE_FORCE 16.0f
 #define GRAVITY 4.0f
-#define RESTITUTION 0.8f
-#define MAX_INFO_LOG 512
+#define RESTITUTION 0.6f
 #define DIST_EPSILON 0.000001f
-#define RANDOM() (rand() / (float)RAND_MAX)
 
 #define SUBDIVISIONS 3
 #define NUM_THREADS (1 << SUBDIVISIONS)
 
 #define GRID_WIDTH INV_RADIUS
 #define GRID_HEIGHT INV_RADIUS
+#define CELL_CAP 16
 #define CELL_WIDTH (2.0f / GRID_WIDTH)
 #define CELL_HEIGHT (2.0f / GRID_HEIGHT)
+
+#define RANDOM() (rand() / (float)RAND_MAX)
+#define MAX_INFO_LOG 512
 
 float viewport[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -34,44 +35,28 @@ float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 struct {
 	float (*curr)[2];
 	float (*prev)[2];
-	// int* pressure;
 	int* index;
 } particle;
 
-struct ListNode {
-	int key;
-	struct ListNode* next;
-};
-
-struct ListNode** grid;
+struct {
+	int keys[CELL_CAP];
+	int count;
+}** grid;
 
 pthread_t threads[NUM_THREADS];
 int threadIDs[NUM_THREADS];
 int threadRegion[NUM_THREADS][4];
-int collisionPass = 0;
+int threadPass = 0;
 
-void insert(int key, struct ListNode* head) {
-	struct ListNode* node = malloc(sizeof(struct ListNode));
-	if (!node) {
-		fprintf(stderr, "Failed to allocate node\n");
-		exit(1);
+void cellAppend(int key, int x, int y) {
+	if (grid[y][x].count >= CELL_CAP) {
+		fprintf(stderr, "Overfull cell!\n");
+		return;
 	}
-	node->key = key;
-	node->next = head->next;
-	head->next = node;
+	grid[y][x].keys[grid[y][x].count++] = key;
 }
 
-void listfree(struct ListNode* head) {
-	while (head) {
-		struct ListNode* next = head->next;
-		head->key = -1;
-		head->next = NULL;
-		free(head);
-		head = next;
-	}
-}
-
-void collide(int i, int j) {
+void collideParticles(int i, int j) {
 	float x1 = particle.curr[i][0];
 	float y1 = particle.curr[i][1];
 	float px1 = particle.prev[i][0];
@@ -136,7 +121,7 @@ void* collisionThread(void* arg) {
 	int y1 = threadRegion[threadID][3];
 	int mx = x0 + (x1 - x0) / 2;
 	int my = y0 + (y1 - y0) / 2;
-	switch (collisionPass) {
+	switch (threadPass) {
 		case 0: { x1 = mx; y1 = my; break; } // top left
 		case 1: { x0 = mx + 1; y1 = my; break; } // top right
 		case 2: { x1 = mx; y0 = my + 1; break; } // bottom left
@@ -149,35 +134,25 @@ void* collisionThread(void* arg) {
 	// printf("Thread %d started on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", threadID, x0, y0, x1, y1);
 	for (int y = y0; y <= y1; y++) {
 		for (int x = x0; x <= x1; x++) {
-			struct ListNode group;
-			group.key = -1;
-			group.next = NULL;
+			int keys[9 * CELL_CAP];
+			int count = 0;
 			for (int dy = -1; dy <= 1; dy++) {
 				for (int dx = -1; dx <= 1; dx++) {
-					struct ListNode* curr = grid[y+dy][x+dx].next;
-					while (curr) {
-						insert(curr->key, &group);
-						curr = curr->next;
+					for (int ci = 0; ci < grid[y+dy][x+dx].count; ci++) {
+						keys[count++] = grid[y+dy][x+dx].keys[ci];
 					}
 				}
 			}
-			struct ListNode* left = group.next;
-			while (left && left->next) {
-				struct ListNode* right = left->next;
-				while (right) {
-					int i = left->key;
-					int j = right->key;
-					collide(i, j);
-					right = right->next;
+			for (int i = 0; i < count - 1; i++) {
+				int key1 = keys[i];
+				for (int j = i + 1; j < count; j++) {
+					int key2 = keys[j];
+					collideParticles(key1, key2);
 				}
-				left = left->next;
 			}
-			listfree(group.next);
-			// group.key = -1;
-			// group.next = NULL;
 		}
 	}
-	pthread_exit(NULL);
+	// pthread_exit(NULL);
 	return NULL;
 }
 
@@ -270,33 +245,18 @@ void glfwCursorPosCallback(GLFWwindow* window, double x, double y);
 void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height);
 
-void initParticles(void) {
+void allocParticles(void) {
 	particle.curr = malloc(NUM_PARTICLES * sizeof(float[2]));
 	particle.prev = malloc(NUM_PARTICLES * sizeof(float[2]));
 	particle.index = malloc(NUM_PARTICLES * sizeof(int));
+	// particle.dirty = malloc(NUM_PARTICLES * sizeof(bool));
 	// particle.pressure = malloc(NUM_PARTICLES * sizeof(int));
-	for (int i = 0; i < NUM_PARTICLES; i++) {
-		float x = 2.0f * RANDOM() - 1.0f;
-		float y = 2.0f * RANDOM() - 1.0f;
-		float dx = 0.0f;
-		float dy = 0.0f;
-		particle.curr[i][0] = x;
-		particle.curr[i][1] = y;
-		particle.prev[i][0] = x - dx;
-		particle.prev[i][1] = y - dy;
-		particle.index[i] = i;
-		// particle.pressure[i] = 0;
-	}
 }
 
-void initGrid(void) {
-	grid = malloc(GRID_HEIGHT * sizeof(struct ListNode*));
+void allocGrid(void) {
+	grid = malloc(GRID_HEIGHT * sizeof(*grid));
 	for (int y = 0; y < GRID_HEIGHT; y++) {
-		grid[y] = malloc(GRID_WIDTH * sizeof(struct ListNode));
-		for (int x = 0; x < GRID_WIDTH; x++) {
-			grid[y][x].key = -1;
-			grid[y][x].next = NULL;
-		}
+		grid[y] = malloc(GRID_WIDTH * sizeof(**grid));
 	}
 }
 
@@ -304,6 +264,7 @@ void freeParticles(void) {
 	free(particle.curr);
 	free(particle.prev);
 	free(particle.index);
+	// free(particle.dirty);
 	// free(particle.pressure);
 }
 
@@ -358,25 +319,39 @@ int main(void) {
 
 	printf("OpenGL %s\n", glGetString(GL_VERSION));
 
-	GLuint circleVertShader = glCreateShader(GL_VERTEX_SHADER);
-	compileShaderFiles(1, (const char* []) { "shader/circle.vert" }, &circleVertShader);
+	GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	compileShaderFiles(1, (const char* []) { "shader/point.vert" }, &vertexShader);
 
-	GLuint circleFragShader = glCreateShader(GL_FRAGMENT_SHADER);
-	compileShaderFiles(1, (const char* []) { "shader/circle.frag" }, &circleFragShader);
+	GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	compileShaderFiles(1, (const char* []) { "shader/point.frag" }, &fragmentShader);
 
-	GLuint renderProgram = glCreateProgram();
-	glAttachShader(renderProgram, circleVertShader);
-	glAttachShader(renderProgram, circleFragShader);
-	linkShaderProgram(&renderProgram);
-	glUseProgram(renderProgram);
-	glUniform1f(glGetUniformLocation(renderProgram, "radius"), PARTICLE_RADIUS);
+	GLuint shaderProgram = glCreateProgram();
+	glAttachShader(shaderProgram, vertexShader);
+	glAttachShader(shaderProgram, fragmentShader);
+	linkShaderProgram(&shaderProgram);
 
-	GLuint ssbo;
-	glGenBuffers(1, &ssbo);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-	glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-	glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PARTICLES * sizeof(GLfloat[2]), NULL, GL_DYNAMIC_DRAW);
-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	glUseProgram(shaderProgram);
+	glUniform1f(glGetUniformLocation(shaderProgram, "radius"), PARTICLE_RADIUS);
+	glUseProgram(0);
+
+	GLuint vao, vbo;
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, NUM_PARTICLES * sizeof(GLfloat[2]), NULL, GL_DYNAMIC_DRAW);
+
+	glGenVertexArrays(1, &vao);
+	glBindVertexArray(vao);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
+	glEnableVertexAttribArray(0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	// glEnable(GL_BLEND);
+	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// glDisable(GL_DEPTH_TEST);
+	glEnable(GL_POINT_SPRITE_NV);
+	// glEnable(GL_POINT_SPRITE_ARB);
 
 	glfwSetTime(0.0);
 	float timePrev = 0.0f;
@@ -385,8 +360,22 @@ int main(void) {
 
 	float timestepTimer = 0.0f;
 
-	initParticles();
-	initGrid();
+	allocParticles();
+	allocGrid();
+
+	// init random particles
+	for (int i = 0; i < NUM_PARTICLES; i++) {
+		float x = 2.0f * RANDOM() - 1.0f;
+		float y = 2.0f * RANDOM() - 1.0f;
+		float dx = 0.0f;
+		float dy = 0.0f;
+		particle.curr[i][0] = x;
+		particle.curr[i][1] = y;
+		particle.prev[i][0] = x - dx;
+		particle.prev[i][1] = y - dy;
+		particle.index[i] = i;
+		// particle.pressure[i] = 0;
+	}
 
 	printf("Running on %d threads\n", NUM_THREADS);
 
@@ -421,12 +410,15 @@ int main(void) {
 				float ax = 0.0f;
 				float ay = 0.0f;
 				ax += mouse[2] * MOUSE_FORCE * (mouse[0] - x);
+				ax -= mouse[3] * MOUSE_FORCE * (mouse[0] - x);
 				ay += mouse[2] * MOUSE_FORCE * (mouse[1] - y);
+				ay -= mouse[3] * MOUSE_FORCE * (mouse[1] - y);
 				ay -= GRAVITY;
 				particle.prev[i][0] = x;
 				particle.prev[i][1] = y;
-				particle.curr[i][0] = x + dx + ax*dt*dt;
-				particle.curr[i][1] = y + dy + ay*dt*dt;
+				float damp = 0.9995f;
+				particle.curr[i][0] = x + damp * dx + ax*dt*dt;
+				particle.curr[i][1] = y + damp * dy + ay*dt*dt;
 			}
 
 			// // Calculate "pressure" by counting touching particles
@@ -455,33 +447,25 @@ int main(void) {
 			// Clear all previous grid data
 			for (int y = 0; y < GRID_HEIGHT; y++) {
 				for (int x = 0; x < GRID_WIDTH; x++) {
-					listfree(grid[y][x].next);
-					grid[y][x].next = NULL;
+					grid[y][x].count = 0;
 				}
 			}
 
 			// Populate grid data with particles
 			for (int i = 0; i < NUM_PARTICLES; i++) {
-				float x = particle.curr[i][0];
-				float y = particle.curr[i][1];
-				int gridX = (x + 1.0f) * 0.5f * GRID_WIDTH;
-				int gridY = (y + 1.0f) * 0.5f * GRID_HEIGHT;
-				gridX = gridX < 0 ? 0 : gridX;
-				gridX = gridX >= GRID_WIDTH ? GRID_WIDTH - 1 : gridX;
-				gridY = gridY < 0 ? 0 : gridY;
-				gridY = gridY >= GRID_HEIGHT ? GRID_HEIGHT - 1 : gridY;
-				if (gridX >= 0 && gridX < GRID_WIDTH && gridY >= 0 && gridY < GRID_HEIGHT) {
-					struct ListNode* head = &grid[gridY][gridX];
-					// printf("Inserting particle into cell (%d, %d)\n", gridX, gridY);
-					insert(i, head);
-				} else {
-					fprintf(stderr, "Grid index out of range! (%d, %d)\n", gridX, gridY);
-					exit(1);
-				}
+				float px = particle.curr[i][0];
+				float py = particle.curr[i][1];
+				int x = (px + 1.0f) * 0.5f * GRID_WIDTH;
+				int y = (py + 1.0f) * 0.5f * GRID_HEIGHT;
+				x = x < 0 ? 0 : x;
+				x = x >= GRID_WIDTH ? GRID_WIDTH - 1 : x;
+				y = y < 0 ? 0 : y;
+				y = y >= GRID_HEIGHT ? GRID_HEIGHT - 1 : y;
+				cellAppend(i, x, y);
 			}
 
 			// Partition the grid into regions of separate threads
-			for (collisionPass = 0; collisionPass < 4; collisionPass++) {
+			for (threadPass = 0; threadPass < 4; threadPass++) {
 				int threadsSpawned = spawnThreadsRecursive(1, GRID_WIDTH - 2, 1, GRID_HEIGHT - 2, SUBDIVISIONS, 0, 0);
 				// printf("%d threads spawned\n", threadsSpawned);
 				// Wait for collision threads to finish
@@ -498,24 +482,26 @@ int main(void) {
 				float dist2 = x * x + y * y;
 				float dist = sqrtf(dist2);
 				float maxDist = 1.0f - PARTICLE_RADIUS;
-				if (dist > maxDist) {
-					float nx = x / dist;
-					float ny = y / dist;
-					particle.curr[i][0] = nx * maxDist;
-					particle.curr[i][1] = ny * maxDist;
-				}
+				float minDist = PARTICLE_RADIUS + 0.3f;
+				float nx = x / dist;
+				float ny = y / dist;
+				dist = fmaxf(fminf(dist, maxDist), minDist);
+				particle.curr[i][0] = nx * dist;
+				particle.curr[i][1] = ny * dist;
 			}
 		}
 
 		// Send particle positions to GPU
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-		glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, NUM_PARTICLES * sizeof(GLfloat[2]), particle.curr);
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, NUM_PARTICLES * sizeof(GLfloat[2]), particle.curr);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 		// Make draw call
 		glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
-		glDrawArraysInstanced(GL_TRIANGLES, 0, 6, NUM_PARTICLES);
+		glBindVertexArray(vao);
+		glUseProgram(shaderProgram);
+		glDrawArrays(GL_POINTS, 0, NUM_PARTICLES);
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -575,5 +561,6 @@ void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height) {
 	viewport[2] = viewportX;
 	viewport[3] = viewportY;
 	glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
+	glPointSize(PARTICLE_RADIUS * viewport[1]);
 }
 
