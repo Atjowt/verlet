@@ -11,13 +11,13 @@
 #define NUM_PARTICLES 4096
 #define INV_RADIUS 128
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
-#define TIMESTEP 0.002f
 #define MOUSE_FORCE 16.0f
 #define GRAVITY 4.0f
 #define RESTITUTION 0.6f
 #define DIST_EPSILON 0.000001f
+#define DO_COLLISION 1
 
-#define SUBDIVISIONS 3
+#define SUBDIVISIONS 1
 #define NUM_THREADS (1 << SUBDIVISIONS)
 
 #define GRID_WIDTH INV_RADIUS
@@ -35,7 +35,6 @@ float mouse[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 struct {
 	float (*curr)[2];
 	float (*prev)[2];
-	int* index;
 } particle;
 
 struct {
@@ -50,7 +49,7 @@ int threadPass = 0;
 
 void cellAppend(int key, int x, int y) {
 	if (grid[y][x].count >= CELL_CAP) {
-		fprintf(stderr, "Overfull cell!\n");
+		// fprintf(stderr, "Overfull cell!\n");
 		return;
 	}
 	grid[y][x].keys[grid[y][x].count++] = key;
@@ -248,7 +247,6 @@ void glfwFramebufferSizeCallback(GLFWwindow* window, int width, int height);
 void allocParticles(void) {
 	particle.curr = malloc(NUM_PARTICLES * sizeof(float[2]));
 	particle.prev = malloc(NUM_PARTICLES * sizeof(float[2]));
-	particle.index = malloc(NUM_PARTICLES * sizeof(int));
 }
 
 void allocGrid(void) {
@@ -261,7 +259,6 @@ void allocGrid(void) {
 void freeParticles(void) {
 	free(particle.curr);
 	free(particle.prev);
-	free(particle.index);
 }
 
 void freeGrid(void) {
@@ -342,10 +339,11 @@ int main(void) {
 
 	glfwSetTime(0.0);
 	float timePrev = 0.0f;
+	float deltaTimePrev = 1.0f;
 	float secTimer = 0.0f;
 	int fpsCounter = 0;
 
-	float timestepTimer = 0.0f;
+	// float timestepTimer = 0.0f;
 
 	allocParticles();
 	allocGrid();
@@ -360,17 +358,20 @@ int main(void) {
 		particle.curr[i][1] = y;
 		particle.prev[i][0] = x - dx;
 		particle.prev[i][1] = y - dy;
-		particle.index[i] = i;
 	}
 
 	printf("Running on %d threads\n", NUM_THREADS);
+
+	int doCollision = 1;
 
 	while (!glfwWindowShouldClose(window)) {
 
 		float timeCurr = glfwGetTime();
 		float deltaTime = timeCurr - timePrev;
 		timePrev = timeCurr;
-
+		float dt1 = deltaTime / deltaTimePrev;
+		float dt2 = 0.5f * deltaTime * (deltaTime + deltaTimePrev);
+		deltaTimePrev = deltaTime;
 		if (secTimer >= 1.0f) {
 			printf("%d FPS\n", fpsCounter);
 			fpsCounter = 0;
@@ -379,79 +380,78 @@ int main(void) {
 		secTimer += deltaTime;
 		fpsCounter++;
 
-		timestepTimer += deltaTime;
+		// timestepTimer += deltaTime;
 
-		while (timestepTimer >= TIMESTEP) {
-			timestepTimer -= TIMESTEP;
-			float dt = TIMESTEP;
 
-			// Move particles with verlet integration
-			for (int i = 0; i < NUM_PARTICLES; i++) {
-				float x = particle.curr[i][0];
-				float y = particle.curr[i][1];
-				float px = particle.prev[i][0];
-				float py = particle.prev[i][1];
-				float dx = x - px;
-				float dy = y - py;
-				float ax = 0.0f;
-				float ay = 0.0f;
-				ax += mouse[2] * MOUSE_FORCE * (mouse[0] - x);
-				ax -= mouse[3] * MOUSE_FORCE * (mouse[0] - x);
-				ay += mouse[2] * MOUSE_FORCE * (mouse[1] - y);
-				ay -= mouse[3] * MOUSE_FORCE * (mouse[1] - y);
-				ay -= GRAVITY;
-				particle.prev[i][0] = x;
-				particle.prev[i][1] = y;
-				float damp = 0.9995f;
-				particle.curr[i][0] = x + damp * dx + ax*dt*dt;
-				particle.curr[i][1] = y + damp * dy + ay*dt*dt;
+		// Move particles with verlet integration
+		for (int i = 0; i < NUM_PARTICLES; i++) {
+			float x = particle.curr[i][0];
+			float y = particle.curr[i][1];
+			float px = particle.prev[i][0];
+			float py = particle.prev[i][1];
+			float dx = x - px;
+			float dy = y - py;
+			float ax = 0.0f;
+			float ay = 0.0f;
+			ax += mouse[2] * MOUSE_FORCE * (mouse[0] - x);
+			ax -= mouse[3] * MOUSE_FORCE * (mouse[0] - x);
+			ay += mouse[2] * MOUSE_FORCE * (mouse[1] - y);
+			ay -= mouse[3] * MOUSE_FORCE * (mouse[1] - y);
+			ay -= GRAVITY;
+			particle.prev[i][0] = x;
+			particle.prev[i][1] = y;
+			particle.curr[i][0] = x + dx*dt1 + ax*dt2;
+			particle.curr[i][1] = y + dy*dt1 + ay*dt2;
+		};
+
+#if DO_COLLISION
+
+		// Clear all previous grid data
+		for (int y = 0; y < GRID_HEIGHT; y++) {
+			for (int x = 0; x < GRID_WIDTH; x++) {
+				grid[y][x].count = 0;
 			}
+		}
 
-			// Clear all previous grid data
-			for (int y = 0; y < GRID_HEIGHT; y++) {
-				for (int x = 0; x < GRID_WIDTH; x++) {
-					grid[y][x].count = 0;
-				}
-			}
+		// Populate grid data with particles
+		for (int i = 0; i < NUM_PARTICLES; i++) {
+			float px = particle.curr[i][0];
+			float py = particle.curr[i][1];
+			int x = (px + 1.0f) * 0.5f * GRID_WIDTH;
+			int y = (py + 1.0f) * 0.5f * GRID_HEIGHT;
+			x = x < 0 ? 0 : x;
+			x = x >= GRID_WIDTH ? GRID_WIDTH - 1 : x;
+			y = y < 0 ? 0 : y;
+			y = y >= GRID_HEIGHT ? GRID_HEIGHT - 1 : y;
+			cellAppend(i, x, y);
+		}
 
-			// Populate grid data with particles
-			for (int i = 0; i < NUM_PARTICLES; i++) {
-				float px = particle.curr[i][0];
-				float py = particle.curr[i][1];
-				int x = (px + 1.0f) * 0.5f * GRID_WIDTH;
-				int y = (py + 1.0f) * 0.5f * GRID_HEIGHT;
-				x = x < 0 ? 0 : x;
-				x = x >= GRID_WIDTH ? GRID_WIDTH - 1 : x;
-				y = y < 0 ? 0 : y;
-				y = y >= GRID_HEIGHT ? GRID_HEIGHT - 1 : y;
-				cellAppend(i, x, y);
+		// Partition the grid into regions of separate threads
+		for (threadPass = 0; threadPass < 4; threadPass++) {
+			int threadsSpawned = spawnThreadsRecursive(1, GRID_WIDTH - 2, 1, GRID_HEIGHT - 2, SUBDIVISIONS, 0, 0);
+			// printf("%d threads spawned\n", threadsSpawned);
+			// Wait for collision threads to finish
+			for (int i = 0; i < threadsSpawned; i++) {
+				pthread_join(threads[i], NULL);
 			}
+			// printf("All %d threads are done\n", threadsSpawned);
+		}
 
-			// Partition the grid into regions of separate threads
-			for (threadPass = 0; threadPass < 4; threadPass++) {
-				int threadsSpawned = spawnThreadsRecursive(1, GRID_WIDTH - 2, 1, GRID_HEIGHT - 2, SUBDIVISIONS, 0, 0);
-				// printf("%d threads spawned\n", threadsSpawned);
-				// Wait for collision threads to finish
-				for (int i = 0; i < threadsSpawned; i++) {
-					pthread_join(threads[i], NULL);
-				}
-				// printf("All %d threads are done\n", threadsSpawned);
-			}
+#endif
 
-			// Apply maximum distance constraint
-			for (int i = 0; i < NUM_PARTICLES; i++) {
-				float x = particle.curr[i][0];
-				float y = particle.curr[i][1];
-				float dist2 = x * x + y * y;
-				float dist = sqrtf(dist2);
-				float maxDist = 1.0f - PARTICLE_RADIUS;
-				float minDist = PARTICLE_RADIUS + 0.3f;
-				float nx = x / dist;
-				float ny = y / dist;
-				dist = fmaxf(fminf(dist, maxDist), minDist);
-				particle.curr[i][0] = nx * dist;
-				particle.curr[i][1] = ny * dist;
-			}
+		// Apply maximum distance constraint
+		for (int i = 0; i < NUM_PARTICLES; i++) {
+			float x = particle.curr[i][0];
+			float y = particle.curr[i][1];
+			float dist2 = x * x + y * y;
+			float dist = sqrtf(dist2);
+			float maxDist = 1.0f - PARTICLE_RADIUS;
+			float minDist = PARTICLE_RADIUS + 0.3f;
+			float nx = x / dist;
+			float ny = y / dist;
+			dist = fmaxf(fminf(dist, maxDist), minDist);
+			particle.curr[i][0] = nx * dist;
+			particle.curr[i][1] = ny * dist;
 		}
 
 		// Send particle positions to GPU

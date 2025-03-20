@@ -2,11 +2,13 @@
 
 layout(location = 0) in vec2 position;
 
-uniform float radius;
+out vec3 VertColor;
 
-out flat int vid;
+vec3 palette(int i) {
+	return vec3(0.0) + vec3((i % 7) / 7.0, (i % 11) / 11.0, (i % 13) / 13.0);
 
+}
 void main(void) {
 	gl_Position = vec4(position, 0.0, 1.0);
-	vid = gl_VertexID;
+	VertColor = palette(gl_VertexID);
 }
