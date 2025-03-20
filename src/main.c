@@ -249,8 +249,6 @@ void allocParticles(void) {
 	particle.curr = malloc(NUM_PARTICLES * sizeof(float[2]));
 	particle.prev = malloc(NUM_PARTICLES * sizeof(float[2]));
 	particle.index = malloc(NUM_PARTICLES * sizeof(int));
-	// particle.dirty = malloc(NUM_PARTICLES * sizeof(bool));
-	// particle.pressure = malloc(NUM_PARTICLES * sizeof(int));
 }
 
 void allocGrid(void) {
@@ -264,8 +262,6 @@ void freeParticles(void) {
 	free(particle.curr);
 	free(particle.prev);
 	free(particle.index);
-	// free(particle.dirty);
-	// free(particle.pressure);
 }
 
 void freeGrid(void) {
@@ -274,12 +270,6 @@ void freeGrid(void) {
 	}
 	free(grid);
 }
-
-// int comparePressure(const void* a, const void* b) {
-// 	int i1 = *(int*)a;
-// 	int i2 = *(int*)b;
-// 	return particle.pressure[i1] - particle.pressure[i2];
-// }
 
 int main(void) {
 
@@ -347,11 +337,8 @@ int main(void) {
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
 
-	// glEnable(GL_BLEND);
-	// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	// glDisable(GL_DEPTH_TEST);
-	glEnable(GL_POINT_SPRITE_NV);
-	// glEnable(GL_POINT_SPRITE_ARB);
+	// glEnable(GL_POINT_SPRITE_NV);
+	glEnable(GL_POINT_SPRITE_ARB);
 
 	glfwSetTime(0.0);
 	float timePrev = 0.0f;
@@ -374,7 +361,6 @@ int main(void) {
 		particle.prev[i][0] = x - dx;
 		particle.prev[i][1] = y - dy;
 		particle.index[i] = i;
-		// particle.pressure[i] = 0;
 	}
 
 	printf("Running on %d threads\n", NUM_THREADS);
@@ -420,29 +406,6 @@ int main(void) {
 				particle.curr[i][0] = x + damp * dx + ax*dt*dt;
 				particle.curr[i][1] = y + damp * dy + ay*dt*dt;
 			}
-
-			// // Calculate "pressure" by counting touching particles
-			// for (int i = 0; i < NUM_PARTICLES; i++) {
-			// 	int pressure = 0;
-			// 	float x1 = particle.curr[i][0];
-			// 	float y1 = particle.curr[i][1];
-			// 	for (int j = 0; j < NUM_PARTICLES; j++) {
-			// 		float x2 = particle.curr[j][0];
-			// 		float y2 = particle.curr[j][1];
-			// 		float dx = x1 - x2;
-			// 		float dy = y1 - y2;
-			// 		float rsum = PARTICLE_RADIUS + PARTICLE_RADIUS;
-			// 		float rsum2 = rsum * rsum;
-			// 		float dist2 = dx * dx + dy * dy;
-			// 		if (dist2 <= rsum2) {
-			// 			pressure++;
-			// 		}
-			// 	}
-			// 	particle.pressure[i] = pressure;
-			// }
-
-			// // Sort particles by pressure
-			// qsort(particle.index, NUM_PARTICLES, sizeof(int), comparePressure);
 
 			// Clear all previous grid data
 			for (int y = 0; y < GRID_HEIGHT; y++) {
