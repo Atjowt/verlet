@@ -22,7 +22,7 @@
 
 #define GRID_WIDTH INV_RADIUS
 #define GRID_HEIGHT INV_RADIUS
-#define CELL_CAP 16
+#define CELL_CAP 8
 #define CELL_WIDTH (2.0f / GRID_WIDTH)
 #define CELL_HEIGHT (2.0f / GRID_HEIGHT)
 
