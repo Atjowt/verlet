@@ -13,7 +13,7 @@
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
 #define MOUSE_FORCE 16.0f
 #define GRAVITY 4.0f
-#define RESTITUTION 0.0f
+#define RESTITUTION 0.7f
 #define DIST_EPSILON 0.00001f
 #define SEP_FACTOR 0.45f
 #define DO_COLLISION 1
