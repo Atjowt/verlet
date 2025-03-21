@@ -11,4 +11,5 @@ vec3 palette(int i) {
 void main(void) {
 	gl_Position = vec4(position, 0.0, 1.0);
 	VertColor = palette(gl_VertexID);
+	// VertColor = vec3(0.0, 0.0, 1.0);
 }
