@@ -2,9 +2,10 @@
 
 CC := clang
 
-CFLAGS := -std=c23 -pedantic
+CFLAGS := -std=c99 -pedantic
 CFLAGS += -Iinclude
 CFLAGS += -lm -lglfw
+# CFLAGS += -g -fsanitize=address
 CFLAGS += -O3 -ffast-math
 
 SHADERS := $(wildcard shader/*)
