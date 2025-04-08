@@ -1,5 +1,7 @@
 # Verlet Integration
 
+![Alt text](/.github/preview.gif?raw=true "preview")
+
 A multi-threaded particle simulation using verlet integration.
 
 Tests go up to ~64k particles before dropping below 60 FPS on my Intel Core i5-7400 (4) @ 3.50 GHz.
