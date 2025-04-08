@@ -20,6 +20,9 @@ Use this to choose an appropriate number based on your CPU cores.
 You can of course also modify other parameters like `NUM_PARTICLES` or `INV_RADIUS`.
 
 # Build and Run
+
 Currently only supports POSIX compliant operating systems (so no Windows).
+
 Depends on GLFW for windowing, install using your system package manager (`apt install glfw`, `pacman -S glfw`, ...).
+
 Running `make run` should build and run the program using clang.
