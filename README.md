@@ -15,7 +15,9 @@ e.g.
 - 2 subdivision(s) = 4 thread(s)
 - ...
 
-Use this to choose an appropriate number based on the number of cores in your CPU.
+Use this to choose an appropriate number based on your CPU cores.
+
+You can of course also modify other parameters like `NUM_PARTICLES` or `INV_RADIUS`.
 
 # Build and Run
 Currently only supports POSIX compliant operating systems (so no Windows).
