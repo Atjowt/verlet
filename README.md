@@ -21,4 +21,5 @@ You can of course also modify other parameters like `NUM_PARTICLES` or `INV_RADI
 
 # Build and Run
 Currently only supports POSIX compliant operating systems (so no Windows).
+Depends on GLFW for windowing, install using your system package manager (`apt install glfw`, `pacman -S glfw`, ...).
 Running `make run` should build and run the program using clang.
