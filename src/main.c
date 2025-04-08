@@ -8,15 +8,15 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES 8192
+#define NUM_PARTICLES (1*8192)
 #define INV_RADIUS 128
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
 #define MOUSE_FORCE 16.0f
-#define GRAVITY 4.0f
-#define RESTITUTION 0.75f
+#define GRAVITY 8.0f
+#define RESTITUTION 0.5f
 #define DIST_EPSILON 0.00001f
 #define SEP_FACTOR 0.49f
-#define SIMULATION_RATE 512
+#define FIXED_TIMESTEP 0.0005
 #define DO_COLLISION 1
 
 #define SUBDIVISIONS 2
@@ -47,23 +47,23 @@ int threadIDs[NUM_THREADS];
 int threadRegion[NUM_THREADS][4];
 int threadPass = 0;
 
-void shuffleParticles(void) {
-	for (int i = NUM_PARTICLES - 1; i > 0; i--) {
-		int j = rand() % (i + 1);
-		float tempX = particles.curr[i][0];
-		float tempY = particles.curr[i][1];
-		particles.curr[i][0] = particles.curr[j][0];
-		particles.curr[i][1] = particles.curr[j][1];
-		particles.curr[j][0] = tempX;
-		particles.curr[j][1] = tempY;
-		tempX = particles.prev[i][0];
-		tempY = particles.prev[i][1];
-		particles.prev[i][0] = particles.prev[j][0];
-		particles.prev[i][1] = particles.prev[j][1];
-		particles.prev[j][0] = tempX;
-		particles.prev[j][1] = tempY;
-	}
-}
+// void shuffleParticles(void) {
+// 	for (int i = NUM_PARTICLES - 1; i > 0; i--) {
+// 		int j = rand() % (i + 1);
+// 		float tempX = particles.curr[i][0];
+// 		float tempY = particles.curr[i][1];
+// 		particles.curr[i][0] = particles.curr[j][0];
+// 		particles.curr[i][1] = particles.curr[j][1];
+// 		particles.curr[j][0] = tempX;
+// 		particles.curr[j][1] = tempY;
+// 		tempX = particles.prev[i][0];
+// 		tempY = particles.prev[i][1];
+// 		particles.prev[i][0] = particles.prev[j][0];
+// 		particles.prev[i][1] = particles.prev[j][1];
+// 		particles.prev[j][0] = tempX;
+// 		particles.prev[j][1] = tempY;
+// 	}
+// }
 
 void cellAppend(int key, int x, int y) {
 	if (grid[y][x].count >= CELL_CAP) {
@@ -76,14 +76,14 @@ void cellAppend(int key, int x, int y) {
 void collideParticles(int i, int j) {
 	float x1 = particles.curr[i][0];
 	float y1 = particles.curr[i][1];
-	float px1 = particles.prev[i][0];
-	float py1 = particles.prev[i][1];
-	float vx1 = x1 - px1;
-	float vy1 = y1 - py1;
 	float x2 = particles.curr[j][0];
 	float y2 = particles.curr[j][1];
+	float px1 = particles.prev[i][0];
+	float py1 = particles.prev[i][1];
 	float px2 = particles.prev[j][0];
 	float py2 = particles.prev[j][1];
+	float vx1 = x1 - px1;
+	float vy1 = y1 - py1;
 	float vx2 = x2 - px2;
 	float vy2 = y2 - py2;
 	float dx = x1 - x2;
@@ -149,10 +149,6 @@ void* collisionThread(void* arg) {
 		case 1: { x0 = mx + 1; y1 = my; break; } // top right
 		case 2: { x1 = mx; y0 = my + 1; break; } // bottom left
 		case 3: { x0 = mx + 1; y0 = my + 1; break; } // bottom right
-		default: {
-			fprintf(stderr, "Invalid collision pass\n");
-			exit(1);
-		}
 	}
 	// printf("Thread %d started on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", threadID, x0, y0, x1, y1);
 	for (int y = y0; y <= y1; y++) {
@@ -263,6 +259,132 @@ void linkShaderProgram(GLuint* program) {
 	}
 }
 
+void initSimulation(void) {
+	for (int i = 0; i < NUM_PARTICLES; i++) {
+		float x = 2.0f * RANDOM() - 1.0f;
+		float y = 2.0f * RANDOM() - 1.0f;
+		float dx = 0.001f * (2.0f * RANDOM() - 1.0f);
+		float dy = 0.001f * (2.0f * RANDOM() - 1.0f);
+		particles.curr[i][0] = x;
+		particles.curr[i][1] = y;
+		particles.prev[i][0] = x - dx;
+		particles.prev[i][1] = y - dy;
+	}
+}
+
+void updateSimulation(float dt1, float dt2) {
+	// Move with verlet integration
+	for (int i = 0; i < NUM_PARTICLES; i++) {
+		float x = particles.curr[i][0];
+		float y = particles.curr[i][1];
+		float px = particles.prev[i][0];
+		float py = particles.prev[i][1];
+		float dx = x - px;
+		float dy = y - py;
+		float ax = 0.0f;
+		float ay = 0.0f;
+		ax += mouse[2] * MOUSE_FORCE * (mouse[0] - x);
+		ay += mouse[2] * MOUSE_FORCE * (mouse[1] - y);
+		ax -= mouse[3] * MOUSE_FORCE * (mouse[0] - x);
+		ay -= mouse[3] * MOUSE_FORCE * (mouse[1] - y);
+		ay -= GRAVITY;
+		particles.prev[i][0] = x;
+		particles.prev[i][1] = y;
+		particles.curr[i][0] = x + dx*dt1 + ax*dt2;
+		particles.curr[i][1] = y + dy*dt1 + ay*dt2;
+	};
+
+#if DO_COLLISION
+	// Sort particles by cell
+	// static int countSortCounts[GRID_WIDTH * GRID_HEIGHT];
+	// static int countSortPrefix[GRID_WIDTH * GRID_HEIGHT + 1];
+	// static int countSortKey[NUM_PARTICLES];
+	// static float tempCurr[NUM_PARTICLES][2];
+	// static float tempPrev[NUM_PARTICLES][2];
+	//
+	// memset(countSortCounts, 0, sizeof(countSortCounts));
+	// for (int i = 0; i < NUM_PARTICLES; i++) {
+	// 	float x = particles.curr[i][0];
+	// 	float y = particles.curr[i][1];
+	// 	int cx = (int)((x + 1.0f) * 0.5f * GRID_WIDTH);
+	// 	cx = cx < 0 ? 0 : cx >= GRID_WIDTH ? GRID_WIDTH - 1 : cx;
+	// 	int cy = (int)((y + 1.0f) * 0.5f * GRID_HEIGHT);
+	// 	cy = cy < 0 ? 0 : cy >= GRID_HEIGHT ? GRID_HEIGHT - 1 : cy;
+	// 	int k = cy * GRID_WIDTH + cx;
+	// 	countSortKey[i] = k;
+	// 	countSortCounts[k]++;
+	// }
+	//
+	// countSortPrefix[0] = 0;
+	// for (int k = 0; k < GRID_WIDTH * GRID_HEIGHT; k++) {
+	// 	countSortPrefix[k + 1] = countSortPrefix[k] + countSortCounts[k];
+	// }
+	//
+	// for (int i = 0; i < NUM_PARTICLES; i++) {
+	// 	int k = countSortKey[i];
+	// 	int pos = countSortPrefix[k]++;
+	// 	tempCurr[pos][0] = particles.curr[i][0];
+	// 	tempCurr[pos][1] = particles.curr[i][1];
+	// 	tempPrev[pos][0] = particles.prev[i][0];
+	// 	tempPrev[pos][1] = particles.prev[i][1];
+	// }
+	//
+	// memcpy(particles.curr, tempCurr, NUM_PARTICLES * sizeof(float[2]));
+	// memcpy(particles.prev, tempPrev, NUM_PARTICLES * sizeof(float[2]));
+
+	// Clear grid
+	for (int y = 0; y < GRID_HEIGHT; y++) {
+		for (int x = 0; x < GRID_WIDTH; x++) {
+			grid[y][x].count = 0;
+		}
+	}
+
+	// Populate grid with particles
+	for (int i = 0; i < NUM_PARTICLES; i++) {
+		float x = particles.curr[i][0];
+		float y = particles.curr[i][1];
+		int cx = (int)((x + 1.0f) * 0.5f * GRID_WIDTH);
+		cx = cx < 0 ? 0 : cx >= GRID_WIDTH ? GRID_WIDTH - 1 : cx;
+		int cy = (int)((y + 1.0f) * 0.5f * GRID_HEIGHT);
+		cy = cy < 0 ? 0 : cy >= GRID_HEIGHT ? GRID_HEIGHT - 1 : cy;
+		cellAppend(i, cx, cy);
+	}
+
+	// Partition the grid into regions of separate threads
+	for (threadPass = 0; threadPass < 4; threadPass++) {
+		int threadsSpawned = spawnThreadsRecursive(1, GRID_WIDTH - 2, 1, GRID_HEIGHT - 2, SUBDIVISIONS, 0, 0);
+		// printf("%d threads spawned\n", threadsSpawned);
+		// Wait for threads to finish
+		for (int i = 0; i < threadsSpawned; i++) {
+			pthread_join(threads[i], NULL);
+		}
+		// printf("All %d threads are done\n", threadsSpawned);
+	}
+
+#endif
+
+	// Apply constraints
+	for (int i = 0; i < NUM_PARTICLES; i++) {
+		float x = particles.curr[i][0];
+		float y = particles.curr[i][1];
+		if (x < -1.0f+PARTICLE_RADIUS) x = -1.0f+PARTICLE_RADIUS;
+		if (y < -1.0f+PARTICLE_RADIUS) y = -1.0f+PARTICLE_RADIUS;
+		if (x > 1.0f-PARTICLE_RADIUS) x = 1.0f-PARTICLE_RADIUS;
+		if (y > 1.0f-PARTICLE_RADIUS) y = 1.0f-PARTICLE_RADIUS;
+		// float dist2 = x * x + y * y;
+		// float dist = sqrtf(dist2);
+		// float maxDist = 0.9f - PARTICLE_RADIUS;
+		// float minDist = PARTICLE_RADIUS + 0.3f;
+		// float nx = x / dist;
+		// float ny = y / dist;
+		// dist = fmaxf(fminf(dist, maxDist), minDist);
+		// particle.curr[i][0] = nx * dist;
+		// particle.curr[i][1] = ny * dist;
+		particles.curr[i][0] = x;
+		particles.curr[i][1] = y;
+	}
+}
+
 void glfwErrorCallback(int code, const char* desc);
 void glfwCursorPosCallback(GLFWwindow* window, double x, double y);
 void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -352,17 +474,7 @@ int main(void) {
 
 	// float timestepTimer = 0.0f;
 
-	// init random particles
-	for (int i = 0; i < NUM_PARTICLES; i++) {
-		float x = 2.0f * RANDOM() - 1.0f;
-		float y = 2.0f * RANDOM() - 1.0f;
-		float dx = 0.001f * (2.0f * RANDOM() - 1.0f);
-		float dy = 0.001f * (2.0f * RANDOM() - 1.0f);
-		particles.curr[i][0] = x;
-		particles.curr[i][1] = y;
-		particles.prev[i][0] = x - dx;
-		particles.prev[i][1] = y - dy;
-	}
+	initSimulation();
 
 	printf("Running on %d threads\n", NUM_THREADS);
 
@@ -382,121 +494,11 @@ int main(void) {
 		secTimer += deltaTime;
 		fpsCounter++;
 
-		// shuffleParticles();
+		// updateSimulation(dt1, dt2);
+		updateSimulation(1.0, FIXED_TIMESTEP*FIXED_TIMESTEP);
 
-		// Move particles with verlet integration
-		for (int i = 0; i < NUM_PARTICLES; i++) {
-			float x = particles.curr[i][0];
-			float y = particles.curr[i][1];
-			float px = particles.prev[i][0];
-			float py = particles.prev[i][1];
-			float dx = x - px;
-			float dy = y - py;
-			float ax = 0.0f;
-			float ay = 0.0f;
-			ax += mouse[2] * MOUSE_FORCE * (mouse[0] - x);
-			ay += mouse[2] * MOUSE_FORCE * (mouse[1] - y);
-			ax -= mouse[3] * MOUSE_FORCE * (mouse[0] - x);
-			ay -= mouse[3] * MOUSE_FORCE * (mouse[1] - y);
-			ay -= GRAVITY;
-			particles.prev[i][0] = x;
-			particles.prev[i][1] = y;
-			particles.curr[i][0] = x + dx*dt1 + ax*dt2;
-			particles.curr[i][1] = y + dy*dt1 + ay*dt2;
-		};
-
-		// static int countSortCounts[GRID_WIDTH * GRID_HEIGHT];
-		// static int countSortPrefix[GRID_WIDTH * GRID_HEIGHT + 1];
-		// static int countSortKey[NUM_PARTICLES];
-		// static float tempCurr[NUM_PARTICLES][2];
-		// static float tempPrev[NUM_PARTICLES][2];
-
-#if DO_COLLISION
-
-		// memset(countSortCounts, 0, sizeof(countSortCounts));
-		// for (int i = 0; i < NUM_PARTICLES; i++) {
-		// 	float x = particles.curr[i][0];
-		// 	float y = particles.curr[i][1];
-		// 	int cx = (int)((x + 1.0f) * 0.5f * GRID_WIDTH);
-		// 	cx = cx < 0 ? 0 : cx >= GRID_WIDTH ? GRID_WIDTH - 1 : cx;
-		// 	int cy = (int)((y + 1.0f) * 0.5f * GRID_HEIGHT);
-		// 	cy = cy < 0 ? 0 : cy >= GRID_HEIGHT ? GRID_HEIGHT - 1 : cy;
-		// 	int k = cy * GRID_WIDTH + cx;
-		// 	countSortKey[i] = k;
-		// 	countSortCounts[k]++;
-		// }
-
-		// countSortPrefix[0] = 0;
-		// for (int k = 0; k < GRID_WIDTH * GRID_HEIGHT; k++) {
-		// 	countSortPrefix[k + 1] = countSortPrefix[k] + countSortCounts[k];
-		// }
-
-		// for (int i = 0; i < NUM_PARTICLES; i++) {
-		// 	int k = countSortKey[i];
-		// 	int pos = countSortPrefix[k]++;
-		// 	tempCurr[pos][0] = particles.curr[i][0];
-		// 	tempCurr[pos][1] = particles.curr[i][1];
-		// 	tempPrev[pos][0] = particles.prev[i][0];
-		// 	tempPrev[pos][1] = particles.prev[i][1];
-		// }
-		//
-		// memcpy(particles.curr, tempCurr, NUM_PARTICLES * sizeof(float[2]));
-		// memcpy(particles.prev, tempPrev, NUM_PARTICLES * sizeof(float[2]));
-
-		// Clear grid
-		for (int y = 0; y < GRID_HEIGHT; y++) {
-			for (int x = 0; x < GRID_WIDTH; x++) {
-				grid[y][x].count = 0;
-			}
-		}
-
-		// Populate grid with particles
-		for (int i = 0; i < NUM_PARTICLES; i++) {
-			float x = particles.curr[i][0];
-			float y = particles.curr[i][1];
-			int cx = (int)((x + 1.0f) * 0.5f * GRID_WIDTH);
-			cx = cx < 0 ? 0 : cx >= GRID_WIDTH ? GRID_WIDTH - 1 : cx;
-			int cy = (int)((y + 1.0f) * 0.5f * GRID_HEIGHT);
-			cy = cy < 0 ? 0 : cy >= GRID_HEIGHT ? GRID_HEIGHT - 1 : cy;
-			cellAppend(i, cx, cy);
-		}
-
-		// Partition the grid into regions of separate threads
-		for (threadPass = 0; threadPass < 4; threadPass++) {
-			int threadsSpawned = spawnThreadsRecursive(1, GRID_WIDTH - 2, 1, GRID_HEIGHT - 2, SUBDIVISIONS, 0, 0);
-			// printf("%d threads spawned\n", threadsSpawned);
-			// Wait for threads to finish
-			for (int i = 0; i < threadsSpawned; i++) {
-				pthread_join(threads[i], NULL);
-			}
-			// printf("All %d threads are done\n", threadsSpawned);
-		}
-
-#endif
-
-		// Apply maximum distance constraint
-		for (int i = 0; i < NUM_PARTICLES; i++) {
-			float x = particles.curr[i][0];
-			float y = particles.curr[i][1];
-			if (x < -1.0f+PARTICLE_RADIUS) x = -1.0f+PARTICLE_RADIUS;
-			if (y < -1.0f+PARTICLE_RADIUS) y = -1.0f+PARTICLE_RADIUS;
-			if (x > 1.0f-PARTICLE_RADIUS) x = 1.0f-PARTICLE_RADIUS;
-			if (y > 1.0f-PARTICLE_RADIUS) y = 1.0f-PARTICLE_RADIUS;
-			// float dist2 = x * x + y * y;
-			// float dist = sqrtf(dist2);
-			// float maxDist = 0.9f - PARTICLE_RADIUS;
-			// float minDist = PARTICLE_RADIUS + 0.3f;
-			// float nx = x / dist;
-			// float ny = y / dist;
-			// dist = fmaxf(fminf(dist, maxDist), minDist);
-			// particle.curr[i][0] = nx * dist;
-			// particle.curr[i][1] = ny * dist;
-			particles.curr[i][0] = x;
-			particles.curr[i][1] = y;
-		}
-
-	// Send particle positions to GPU
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+		// Send particle positions to GPU
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, NUM_PARTICLES * sizeof(GLfloat[2]), particles.curr);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 
