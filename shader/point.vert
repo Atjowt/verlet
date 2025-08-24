@@ -1,6 +1,6 @@
 #version 460
 
-layout(location = 0) in vec2 position;
+layout(location = 0) in vec4 particle;
 
 out vec3 VertColor;
 
@@ -9,6 +9,7 @@ vec3 palette(int i) {
 
 }
 void main(void) {
+	vec2 position = particle.xy;
 	gl_Position = vec4(position, 0.0, 1.0);
 	// VertColor = palette(gl_VertexID);
 	VertColor = vec3(0.0, 0.0, 1.0);
