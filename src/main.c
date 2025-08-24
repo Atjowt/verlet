@@ -8,11 +8,11 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES (1*8192)
-#define INV_RADIUS 128
+#define NUM_PARTICLES (1024*32)
+#define INV_RADIUS 256
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
-#define MOUSE_FORCE 16.0f
-#define GRAVITY 8.0f
+#define MOUSE_FORCE 128.0f
+#define GRAVITY 32.0f
 #define RESTITUTION 0.5f
 #define DIST_EPSILON 0.00001f
 #define SEP_FACTOR 0.49f
