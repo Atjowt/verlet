@@ -8,8 +8,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES (1024*8)
-#define INV_RADIUS 128
+#define NUM_PARTICLES 256
+#define INV_RADIUS 32
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
 #define MOUSE_FORCE 128.0f
 #define GRAVITY 32.0f
@@ -136,20 +136,21 @@ void collideCellPair (
 }
 
 typedef struct {
-	int left, right, top, bottom;
-	const int* cellStart;
-	const int* cellCount;
-	const Particle* particles;
-	float deltas[NUM_PARTICLES][2];
-} ThreadData;
-
-typedef struct {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 	int count;      // how many threads have reached the barrier so far
 	int tripCount;  // how many threads are required to release
 	int generation; // which "round" of the barrier we're in
 } my_barrier_t;
+
+typedef struct {
+	int left, right, top, bottom;
+	const int* cellStart;
+	const int* cellCount;
+	const Particle* particles;
+	float deltas[NUM_PARTICLES][2];
+	my_barrier_t* barrier;
+} ThreadData;
 
 int my_barrier_init(my_barrier_t *barrier, unsigned count) {
 	if (count == 0) return -1;
@@ -190,10 +191,10 @@ int my_barrier_wait(my_barrier_t *barrier) {
 	return 0;
 }
 
-my_barrier_t barrier;
 
 void* collisionThread(void* arg) {
     ThreadData* data = arg;
+	my_barrier_t* barrier = data->barrier;
 	int x0 = data->left;
 	int x1 = data->right;
 	int y0 = data->top;
@@ -203,7 +204,7 @@ void* collisionThread(void* arg) {
 	const Particle* particles = data->particles;
 	// printf("Thread active on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", x0, y0, x1, y1);
 	while (1) {
-		my_barrier_wait(&barrier);
+		my_barrier_wait(barrier);
 		memset(data->deltas, 0, sizeof(data->deltas));
 		for (int y = y0; y <= y1; y++) {
 			for (int x = x0; x <= x1; x++) {
@@ -226,7 +227,7 @@ void* collisionThread(void* arg) {
 				}
 			}
 		}
-		my_barrier_wait(&barrier);
+		my_barrier_wait(barrier);
 	}
 	return NULL;
 }
@@ -559,6 +560,9 @@ int main(void) {
 
 	float spawnTimer = 0.0f;
 
+	my_barrier_t barrier;
+	my_barrier_init(&barrier, NUM_THREADS + 1);
+
 	int cellCount[GRID_WIDTH * GRID_HEIGHT];
 	int cellStart[GRID_WIDTH * GRID_HEIGHT];
 	pthread_t threads[NUM_THREADS];
@@ -567,9 +571,9 @@ int main(void) {
 		threadData[i].particles = particles;
 		threadData[i].cellStart = cellStart;
 		threadData[i].cellCount = cellCount;
+		threadData[i].barrier = &barrier;
 	}
 
-	my_barrier_init(&barrier, NUM_THREADS + 1);
 	int threadsSpawned = spawnThreadsRecursive (
 		0, GRID_WIDTH - 1, 0, GRID_HEIGHT - 1,
 		SUBDIVISIONS, 0, 0,
