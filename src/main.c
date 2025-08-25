@@ -8,8 +8,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#define NUM_PARTICLES (1024*64)
-#define INV_RADIUS 256
+#define NUM_PARTICLES (1024*8)
+#define INV_RADIUS 128
 #define PARTICLE_RADIUS (1.0f / INV_RADIUS)
 #define MOUSE_FORCE 128.0f
 #define GRAVITY 32.0f
@@ -201,7 +201,7 @@ void* collisionThread(void* arg) {
 	const int* cellStart = data->cellStart;
 	const int* cellCount = data->cellCount;
 	const Particle* particles = data->particles;
-	printf("Thread active on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", x0, y0, x1, y1);
+	// printf("Thread active on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", x0, y0, x1, y1);
 	while (1) {
 		my_barrier_wait(&barrier);
 		memset(data->deltas, 0, sizeof(data->deltas));
@@ -246,7 +246,7 @@ int spawnThreadsRecursive (
 		threadData[threadID].right = x1;
 		threadData[threadID].top = y0;
 		threadData[threadID].bottom = y1;
-		printf("Spawning thread (ID: %d) on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", threadID, x0, y0, x1, y1);
+		// printf("Spawning thread (ID: %d) on region (x0: %d, y0: %d) to (x1: %d, y1: %d)\n", threadID, x0, y0, x1, y1);
 		pthread_create(&threads[threadID], NULL, collisionThread, &threadData[threadID]);
 		return 1;
 	}
